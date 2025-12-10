@@ -91,3 +91,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 python main.py
 ```
+
+## Future Work
+- **Golden Master Regression Testing**: Implement a verified `golden_master.csv` test suite to prevent 'Poisoned Cache' issues in the Categorizer and ensure logic stability across updates.
+- **Auto-retry**: If the pandera validation fails, the system must "Auto-retry Stage 2 with the error message as feedback to the LLM"

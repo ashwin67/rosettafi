@@ -2,9 +2,18 @@ import pandas as pd
 import uuid
 import re
 from typing import List, Optional
+import instructor
+from openai import OpenAI
+from pydantic import BaseModel
 from .config import get_logger
 
 logger = get_logger(__name__)
+
+class InvestmentExtract(BaseModel):
+    action: str
+    quantity: float
+    ticker: str
+    price: float
 
 class LedgerEngine:
     def __init__(self):
@@ -13,44 +22,17 @@ class LedgerEngine:
     def generate_splits(self, categorized_df: pd.DataFrame) -> pd.DataFrame:
         """
         Transforms the categorized single-row transactions into multi-row splits.
-        Input DF usually has: [transaction_id, date, amount, account (category), currency, price, meta, description]
-        
-        Logic:
-        1. Parse description for Investment Intent (if not already done).
-        2. Generate Split 1 (Source/Bank):
-           - Account: 'Assets:Bank:Unknown' (or derived)
-           - Amount: Original signed amount (-50 means money left bank, asset decreases by 50. Wait. )
-             Standard Ledger Polarity:
-             - Assets are Positive. Expenses are Positive. Income is Negative (Equity).
-             - Or: 
-               - Asset DB: -50 (Credit Bank)
-               - Expense CR: +50 (Debit Expense)
-             - Let's stick to standard sign conventions used in the 'amount' column so far:
-               - -50.00 means Outflow.
-               - In a Ledger:
-                 - Split 1: Account=Assets:Bank, Amount= -50.00
-                 - Split 2: Account=Expenses:Groceries, Amount= +50.00
-                 - Sum = 0.
-        
-        3. Handle Investments (Secondary Parsing Logic inside Loop):
-           - If description matches "Buy 10 AAPL @ 150":
-             - Original Amount: -1500 (Currency Outflow)
-             - Split 1: Account=Assets:Bank, Amount=-1500 USD
-             - Split 2: Account=Assets:Investments:AAPL, Amount=10 (Quantity). 
-               - Wait, usually ledger balances Currency.
-               - -1500 USD + 10 AAPL != 0 unless priced.
-               - In text ledgers like Beancount/Ledger:
-                 - Assets:Bank  -1500.00 USD
-                 - Assets:Stock  10 AAPL @ 150.00 USD
-               - We need columns for `amount` (quantity) and `commodity` (currency/ticker).
-               - The `amount` column in our schema is likely the currency value.
-               - The schema has `price`.
-               
-        For now, let's implement standard Expense/Income splitting first.
+        Hybrid Mode: Uses Regex (Fast) -> LLM Fallback (Slow) for Investments.
         """
-        logger.info("Stage 6: Generating Ledger Splits...")
+        logger.info("Stage 6: Generating Ledger Splits (Hybrid Mode)...")
         
         splits = []
+        
+        # Initialize LLM client
+        client = instructor.from_openai(
+            OpenAI(base_url="http://localhost:11434/v1", api_key="ollama"),
+            mode=instructor.Mode.JSON,
+        )
         
         for _, row in categorized_df.iterrows():
             trans_id = row['transaction_id']
@@ -60,17 +42,48 @@ class LedgerEngine:
             currency = row['currency']
             category_account = row['account'] # e.g. Expenses:Groceries
             
-            # --- Secondary Parser for Investments ---
-            # Very basic Regex POC
+            inv_data = None
+            
+            # Step 1: Regex (Fast Path)
             # Pattern: "Buy <qty> <ticker> @ <price>"
-            # Example: "Buy 10 AAPL @ 150"
             inv_match = re.search(r"(Buy|Sell)\s+(\d+(?:\.\d+)?)\s+([A-Z]+)\s+@\s+(\d+(?:\.\d+)?)", desc, re.IGNORECASE)
             
             if inv_match:
-                # Investment Transaction detected
                 action, qty, ticker, price = inv_match.groups()
-                qty = float(qty)
-                price = float(price)
+                inv_data = {
+                    "action": action, 
+                    "qty": float(qty), 
+                    "ticker": ticker, 
+                    "price": float(price)
+                }
+            
+            # Step 2: Fallback LLM (Slow Path)
+            elif any(k in desc for k in ["ISIN", "Shares", "@"]):
+                 try:
+                     extract = client.chat.completions.create(
+                        model="llama3.2",
+                        messages=[{
+                            "role": "user", 
+                            "content": f"Extract investment details from: '{desc}'. Return JSON with action (Buy/Sell), quantity, ticker, and price."
+                        }],
+                        response_model=InvestmentExtract,
+                        max_retries=1
+                     )
+                     inv_data = {
+                         "action": extract.action,
+                         "qty": extract.quantity,
+                         "ticker": extract.ticker,
+                         "price": extract.price
+                     }
+                 except Exception as e:
+                     logger.warning(f"LLM Fallback failed for '{desc}': {e}")
+
+            if inv_data:
+                # Investment Transaction detected
+                action = inv_data['action']
+                qty = inv_data['qty']
+                ticker = inv_data['ticker']
+                price = inv_data['price']
                 
                 # Logic:
                 # If Buy: Money Out (amount is negative), Asset In (Positive Qty)
@@ -89,8 +102,7 @@ class LedgerEngine:
                 })
                 
                 # Split 2: Investment (Asset Side)
-                # If Buy, we gain 10 AAPL.
-                target_qty = qty if action.lower() == 'buy' else -qty
+                target_qty = qty if 'buy' in action.lower() else -qty
                 
                 splits.append({
                     "transaction_id": trans_id,

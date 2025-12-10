@@ -1,12 +1,17 @@
 import pandas as pd
 import instructor
 from openai import OpenAI
+import json
+import hashlib
+import os
 from .models import ColumnMapping, PolarityCaseA, PolarityCaseB, PolarityCaseC, DecimalSeparator
 from .config import get_logger
 
 logger = get_logger(__name__)
 
-def get_column_mapping(df: pd.DataFrame) -> ColumnMapping:
+CONFIG_FILE = "bank_configs.json"
+
+def get_column_mapping(df: pd.DataFrame, confirm_mapping: bool = False) -> ColumnMapping:
     """
     Uses LLM (Ollama) to generate a ColumnMapping configuration.
     """
@@ -14,6 +19,20 @@ def get_column_mapping(df: pd.DataFrame) -> ColumnMapping:
     
     raw_headers = list(df.columns)
     logger.info(f"Raw headers found: {raw_headers}")
+
+    # 1. Check for Persistent Config
+    headers_str = str(raw_headers)
+    header_hash = hashlib.md5(headers_str.encode()).hexdigest()
+
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, 'r') as f:
+                all_configs = json.load(f)
+                if header_hash in all_configs:
+                    logger.info(f"Found persistent config for hash {header_hash}. Loading...")
+                    return ColumnMapping(**all_configs[header_hash])
+        except Exception as e:
+            logger.warning(f"Failed to load persistent config: {e}")
     
     client = instructor.from_openai(
         OpenAI(
@@ -82,6 +101,34 @@ def get_column_mapping(df: pd.DataFrame) -> ColumnMapping:
                 mapping.amount_col = raw_headers[amount_idx]
              else:
                 mapping.amount_col = raw_headers[1] if len(raw_headers)>1 else raw_headers[0]
+
+        # Interactive Confirmation & Persistence
+        save_decision = True
+        if confirm_mapping:
+            print("\n--- Proposed Mapping ---")
+            print(mapping.model_dump_json(indent=2))
+            try:
+                user_input = input("Accept this mapping? (Y/n): ").strip().lower()
+                if user_input == 'n':
+                    save_decision = False
+                    logger.info("User rejected mapping. Not saving to persistent config.")
+            except EOFError:
+                pass
+
+        if save_decision:
+             try:
+                all_configs = {}
+                if os.path.exists(CONFIG_FILE):
+                    with open(CONFIG_FILE, 'r') as f:
+                        all_configs = json.load(f)
+                
+                all_configs[header_hash] = mapping.model_dump()
+                
+                with open(CONFIG_FILE, 'w') as f:
+                    json.dump(all_configs, f, indent=4)
+                logger.info("Saved mapping to persistent config.")
+             except Exception as e:
+                logger.warning(f"Failed to save config: {e}")
                 
     return mapping
 
