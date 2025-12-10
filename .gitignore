@@ -27,3 +27,4 @@ var/
 htmlcov/
 .DS_Store
 code.txt
+category_memory.json

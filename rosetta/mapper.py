@@ -26,7 +26,7 @@ def get_column_mapping(df: pd.DataFrame) -> ColumnMapping:
     mapping = None
     try:
         mapping = client.chat.completions.create(
-            model="deepseek-r1:8b", 
+            model="llama3.2", 
             messages=[
                 {
                     "role": "user",
@@ -64,6 +64,13 @@ def get_column_mapping(df: pd.DataFrame) -> ColumnMapping:
         mapping.desc_col = mapping.desc_col.strip()
         if mapping.amount_col:
             mapping.amount_col = mapping.amount_col.strip()
+            
+        # Strip whitespace from polarity fields if applicable
+        if mapping.polarity.type == 'direction':
+            mapping.polarity.direction_col = mapping.polarity.direction_col.strip()
+        elif mapping.polarity.type == 'credit_debit':
+            mapping.polarity.credit_col = mapping.polarity.credit_col.strip()
+            mapping.polarity.debit_col = mapping.polarity.debit_col.strip()
         
         # Validation Logic: Case A Requires amount_col
         if mapping.polarity.type == 'signed' and not mapping.amount_col:

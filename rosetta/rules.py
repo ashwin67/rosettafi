@@ -116,5 +116,9 @@ class RulesEngine:
         
         # Create Meta (JSON dump of original row)
         result['meta'] = df.apply(lambda row: row.to_json(), axis=1)
+
+        # Retain Normalized Description for Categorizer (Fast Path)
+        # Using the mapped description column instead of re-parsing JSON later
+        result['description'] = df[self.mapping.desc_col].astype(str)
         
         return result

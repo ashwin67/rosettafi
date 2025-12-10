@@ -1,9 +1,20 @@
-from enum import Enum
+import asyncio
+import json
+import os
 import pandas as pd
 import instructor
-from openai import OpenAI
-from pydantic import BaseModel, Field
+import ollama
+import nest_asyncio
+import numpy as np
+from scipy.spatial.distance import cosine
+from openai import AsyncOpenAI
+from pydantic import BaseModel
+from enum import Enum
+from typing import List, Dict, Optional
 from .config import get_logger
+
+# Enable nested event loops for notebook/script compatibility
+nest_asyncio.apply()
 
 logger = get_logger(__name__)
 
@@ -19,120 +30,193 @@ class TransactionCategory(BaseModel):
     category: CategoryEnum
 
 class Categorizer:
-    def __init__(self):
-        self.client = instructor.from_openai(
-            OpenAI(
+    def __init__(self, memory_file: str = "category_memory.json"):
+        # Initialize Async Instructor Client for Batch Processing (Slow Path)
+        self.llm_client = instructor.from_openai(
+            AsyncOpenAI(
                 base_url="http://localhost:11434/v1",
                 api_key="ollama", 
             ),
             mode=instructor.Mode.JSON,
         )
-
-    def classify_description(self, description: str, amount: float) -> str:
-        """
-        Slow Path: Uses LLM to classify a single transaction.
-        """
-        try:
-            resp = self.client.chat.completions.create(
-                model="deepseek-r1:8b",
-                messages=[
-                    {
-                        "role": "user",
-                        "content": f"""
-                        Classify this financial transaction into a category.
-                        Description: {description}
-                        Amount: {amount}
-                        
-                        Categories:
-                        - Expenses:Groceries (Supermarkets, Food)
-                        - Expenses:Travel (Trains, Flights, Hotels)
-                        - Expenses:Utilities (Bills, Internet, Phone)
-                        - Income:Standard (Salary, Refunds)
-                        - Transfers (Internal transfers)
-                        - Expenses:Unknown (If unsure)
-                        """
-                    }
-                ],
-                response_model=TransactionCategory,
-                max_retries=1
-            )
-            return resp.category.value
-            
-        except Exception as e:
-            logger.warning(f"Categorization failed for '{description}': {e}")
-            return CategoryEnum.UNKNOWN.value
-
-    def apply(self, df: pd.DataFrame) -> pd.DataFrame:
-        logger.info("Stage 5: Categorizer - Classifying Transactions...")
         
-        # We only need to categorize, not change structure. 
-        # Modifies 'account' column in place or returns copy? 
-        # Better return a new copy or modify. Let's return modified df.
+        # Async Ollama Client for Embeddings (Fast Path)
+        self.ollama_client = ollama.AsyncClient()
         
-        # Iterating for MVP (Vector DB / Bulk LLM would be faster)
-        new_accounts = []
-        for _, row in df.iterrows():
-            # Extract description from meta or implicit knowledge?
-            # We need the description column again. 
-            # In RulesEngine, we lost the original columns in the 'result' df except in 'meta'.
-            # Ideally, we should categorization BEFORE normalization or extract from meta.
-            # Let's extract from the mapped description in meta for simplicity? 
-            # OR pass the original dataframe? 
-            # Actually, RulesEngine returned a CLEAN schema. 'meta' contains original JSON.
-            # But parsing JSON back is slow.
-            
-            # PROPOSAL: Pass the description through RulesEngine?
-            # Or just parse 'meta' since we have it.
-            
-            # Wait, `main.py` has access to `normalized_df`.
-            # normalized_df has 'meta'.
-            
-            import json
+        # Lightweight Vector Memory (In-Memory List of Dicts)
+        # Structure: [{"embedding": [float], "category": str, "description": str}]
+        self.memory_file = memory_file
+        self.memory: List[Dict] = []
+        self.load_memory()
+        
+        # Concurrency Control (Batch Size)
+        self.sem = asyncio.Semaphore(10)
+
+    def load_memory(self):
+        if os.path.exists(self.memory_file):
+            logger.info(f"Loading Vector Memory from {self.memory_file}...")
             try:
-                meta_dict = json.loads(row['meta'])
-                # But we don't know WHICH field in meta is description without the mapping!
-                # We need the mapping here too? Or store standard description in `normalized_df`?
-                # Storing standard description in normalized_df is cleaner.
-                # But prompt said: "account" field replacing "Assets:Bank:Unknown".
+                with open(self.memory_file, "r") as f:
+                    self.memory = json.load(f)
+            except Exception as e:
+                logger.error(f"Failed to load memory: {e}")
+                self.memory = []
+        else:
+            logger.info("No existing memory found. Starting fresh.")
+            self.memory = []
+
+    def save_memory(self):
+        try:
+            with open(self.memory_file, "w") as f:
+                json.dump(self.memory, f)
+            # logger.debug("Memory saved.")
+        except Exception as e:
+            logger.error(f"Failed to save memory: {e}")
+
+    async def get_embedding(self, text: str) -> List[float]:
+        try:
+            logger.debug(f"Generating embedding for: '{text}'")
+            response = await self.ollama_client.embeddings(model='all-minilm', prompt=text)
+            emb = response['embedding']
+            logger.debug(f"Embedding result (first 5): {emb[:5]}")
+            return emb
+        except Exception as e:
+            logger.error(f"Embedding failed for '{text}': {e}")
+            return []
+
+    def find_best_match(self, target_embedding: List[float]) -> Optional[str]:
+        """
+        Finds the closest match in memory using Cosine Similarity.
+        Returns category if similarity > 0.9, else None.
+        """
+        if not self.memory or not target_embedding:
+            return None
+            
+        best_sim = -1.0
+        best_cat = None
+        
+        target_vec = np.array(target_embedding)
+        
+        for item in self.memory:
+            mem_vec = np.array(item['embedding'])
+            # Cosine Distance = 1 - Cosine Similarity
+            # We use scipy.spatial.distance.cosine which returns DISTANCE
+            # Distance 0 = Identical
+            # Similarity > 0.9  => Distance < 0.1
+            
+            # Avoid zero vector errors
+            if np.all(mem_vec == 0) or np.all(target_vec == 0):
+                continue
                 
-                # Let's simple-parse meta if we can, or refactor RulesEngine to include description col.
-                # Refactoring RulesEngine to keep 'description' column in normalized_df is best practice.
-                # But strict schema? 
-                # TargetSchema has: transaction_id, date, account, amount, currency, price, meta.
-                # It does NOT have 'description'. 
-                # So we must rely on 'meta' or passed mapping.
-                pass
-            except:
-                pass
+            dist = cosine(target_vec, mem_vec)
+            sim = 1.0 - dist
+            
+            if sim > best_sim:
+                best_sim = sim
+                best_cat = item['category']
+        
+        # Threshold Check
+        if best_sim > 0.9:
+            logger.debug(f"Cache Hit (Sim: {best_sim:.4f}): {best_cat}")
+            return best_cat
+            
+        return None
+
+    async def classify_transaction(self, description: str, amount: float) -> str:
+        async with self.sem:
+            try:
+                # 1. Fast Path: Generate Embedding & Check Memory
+                embedding = await self.get_embedding(description)
                 
-        # To avoid complexity, I will UPDATE RulesEngine to populate a temporary 'description' column
-        # OR just pass the mapping to Categorizer. Passing mapping is cleaner.
-        return df
+                if embedding:
+                    cached_category = self.find_best_match(embedding)
+                    if cached_category:
+                        return cached_category
+                
+                # 2. Slow Path: LLM Classification
+                # logger.debug(f"Cache Miss for '{description}'. Calling LLM...")
+                resp = await self.llm_client.chat.completions.create(
+                    model="llama3.2",
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": f"""
+                            Classify this financial transaction into a category.
+                            Description: {description}
+                            Amount: {amount}
+                            
+                            Categories:
+                            - Expenses:Groceries (Supermarkets, Food)
+                            - Expenses:Travel (Trains, Flights, Hotels)
+                            - Expenses:Utilities (Bills, Internet, Phone)
+                            - Income:Standard (Salary, Refunds)
+                            - Transfers (Internal transfers)
+                            - Expenses:Unknown (If unsure)
+                            """
+                        }
+                    ],
+                    response_model=TransactionCategory,
+                    max_retries=2
+                )
+                category = resp.category.value
+                
+                # 3. Save to Memory (if embedding succeeded)
+                if embedding:
+                    self.memory.append({
+                        "description": description,
+                        "embedding": embedding,
+                        "category": category
+                    })
+                    # Save periodically or at end? 
+                    # For safety in this MVP, we save implicitly. 
+                    # To avoid excessive I/O, maybe verify if we should save here.
+                    # Ideally, batch save. But for now, let's allow it or rely on a final save.
+                    pass 
+                
+                return category
+
+            except Exception as e:
+                logger.warning(f"Categorization failed for '{description}': {e}")
+                return CategoryEnum.UNKNOWN.value
+
+    async def classify_batch(self, descriptions: List[str], amounts: List[float]) -> List[str]:
+        tasks = [
+            self.classify_transaction(d, a) 
+            for d, a in zip(descriptions, amounts)
+        ]
+        results = await asyncio.gather(*tasks)
+        
+        # Save memory after batch processing
+        self.save_memory()
+        
+        return results
 
     def run_categorization(self, df: pd.DataFrame, mapping) -> pd.DataFrame:
         """
-        Applies categorization using the original dataframe's structure via mapping.
-        df: The NORMALIZED dataframe. which has 'meta'
-        mapping: The ColumnMapping used to create it.
+        Main entry point for Stage 5.
+        df: Normalized DataFrame (must contain 'description' column)
         """
+        logger.info("Stage 5: Categorizer - Classifying Transactions (Lightweight Hybrid)...")
         
-        logger.info("Stage 5: Categorizer - Classifying Transactions...")
+        # Fallback if description missing
+        if 'description' not in df.columns:
+            logger.warning("'description' column missing, extracting from meta/mapping...")
+            extracted = []
+            for _, row in df.iterrows():
+                try:
+                    import json
+                    meta = json.loads(row['meta'])
+                    extracted.append(str(meta.get(mapping.desc_col, "")))
+                except:
+                    extracted.append("Unknown")
+            df['description'] = extracted
+
+        descriptions = df['description'].tolist()
+        amounts = df['amount'].tolist()
+
+        # Run Async Batch Processing
+        loop = asyncio.get_event_loop()
+        categories = loop.run_until_complete(self.classify_batch(descriptions, amounts))
         
-        classified_accounts = []
-        
-        # We need raw description. 
-        # Option A: We can't easily link back to raw DF row-by-row unless order preserved (it is).
-        # extract description from meta using mapping.desc_col
-        
-        import json
-        
-        for idx, row in df.iterrows():
-            meta = json.loads(row['meta'])
-            raw_desc = meta.get(mapping.desc_col, "Unknown")
-            amount = row['amount']
-            
-            category = self.classify_description(raw_desc, amount)
-            classified_accounts.append(category)
-            
-        df['account'] = classified_accounts
+        df['account'] = categories
         return df

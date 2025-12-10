@@ -3,7 +3,7 @@
 **Project Status:** Implemented Stages 1-5 (Ingestion, Mapping, Rules Engine, Categorizer, Validation)
 
 ## Architecture Summary
-This project implements a financial data ingestion engine designed to handle messy bank exports and standardize them into a "Split-Based Ledger" format. The pipeline follows a strict architecture:
+This project implements a financial data ingestion engine designed to handle messy bank exports and standardize them into a "Split-Based Ledger" format. The pipeline follows a strict architecture, optimized for local execution using **Llama 3.2**:
 
 ### 1. Stage 1: The Sniffer (Heuristics)
 *Located in `rosetta/sniffer.py`*
@@ -13,7 +13,7 @@ This project implements a financial data ingestion engine designed to handle mes
 
 ### 2. Stage 2: The Mapper (LLM + Instructor)
 *Located in `rosetta/mapper.py`*
-- Uses `ollama` (local `deepseek-r1:8b`) and `instructor` to analyze the cleaned headers.
+- Uses `ollama` (local `llama3.2`) and `instructor` to analyze the cleaned headers.
 - Generates a rich `ColumnMapping` configuration, identifying:
     - Target columns (`date`, `amount`, `description`).
     - Decimal Separator (`.` or `,`).
@@ -26,11 +26,17 @@ This project implements a financial data ingestion engine designed to handle mes
 - Performs **Locale-Aware Parsing** to correctly parse numbers like `1.000,00` (European) or `1,000.00` (US).
 - Applies **Polarity Logic** to ensure expenses are negative and income is positive, handling multiple bank styles (Direction columns, Credit/Debit splits).
 
-### 4. Stage 5: The Categorizer (LLM)
+### 4. Stage 5: The Categorizer (Hybrid Engine)
 *Located in `rosetta/categorizer.py`*
-- Replaces the default `Assets:Bank:Unknown` account with specific categories (e.g., `Expenses:Groceries`).
-- Uses `deepseek-r1:8b` via `instructor` to classify transaction descriptions based on predefined categories.
-- Upgradable simplified architecture ready for vector database integration.
+- **Architecture**: A "Hybrid" engine combining a **Vector Cache (Fast Path)** and an **LLM (Slow Path)**.
+- **Fast Path**: 
+    - Uses `ollama` to generate standard embeddings (`all-minilm`).
+    - Stores vectors in a specialized, lightweight JSON file (`category_memory.json`).
+    - Performs cosine similarity checks (using `scipy`) to instantly categorize known transactions.
+- **Slow Path**:
+    - If a transaction is new, it is sent to `llama3.2` asynchronously.
+    - The result is then embedded and cached for future speed.
+- **Benefits**: Zero heavyweight dependencies. No `torch` or `chromadb` required.
 
 ### 5. Stage 3: The Validator (Pandera)
 *Located in `rosetta/validator.py`*
@@ -41,13 +47,13 @@ This project implements a financial data ingestion engine designed to handle mes
 ```
 rosettafi/
 ├── main.py             # Entry point
-├── requirements.txt
+├── requirements.txt    # Minimal dependencies (numpy, scipy, ollama, instructor)
 ├── rosetta/            # Core Package
 │   ├── models.py       # Pydantic Schemas
 │   ├── sniffer.py      # Stage 1
 │   ├── mapper.py       # Stage 2
 │   ├── rules.py        # Stage 4 (Logic)
-│   ├── categorizer.py  # Stage 5
+│   ├── categorizer.py  # Stage 5 (Hybrid Classifer)
 │   ├── validator.py    # Stage 3
 │   └── config.py       # Configuration
 ```
@@ -65,9 +71,10 @@ rosettafi/
 ## Usage
 
 ### Prerequisites
-Ensure you have [Ollama](https://ollama.com) installed and running. You will need to pull the specific model used by this pipeline:
+Ensure you have [Ollama](https://ollama.com) installed and running. You will need to pull the specific models used by this pipeline:
 ```bash
-ollama pull deepseek-r1:8b
+ollama pull llama3.2
+ollama pull all-minilm
 ```
 
 ### Running the Project

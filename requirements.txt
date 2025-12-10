@@ -4,3 +4,6 @@ instructor
 ollama
 pydantic
 openai
+scipy
+numpy
+nest_asyncio
