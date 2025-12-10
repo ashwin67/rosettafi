@@ -1,0 +1,6 @@
+pandas
+pandera
+instructor
+ollama
+pydantic
+openai
