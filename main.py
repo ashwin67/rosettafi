@@ -48,8 +48,17 @@ if __name__ == "__main__":
     print("\n--- Stage 5 Output (Categorized DataFrame) ---")
     print(categorized_df[['date', 'amount', 'account']].head())
     
+    # Stage 6: Ledger (Split Generation)
+    from rosetta.ledger import LedgerEngine
+    ledger_engine = LedgerEngine()
+    ledger_df = ledger_engine.generate_splits(categorized_df)
+    
+    print("\n--- Stage 6 Output (Double-Entry Splits) ---")
+    print(ledger_df[['date', 'account', 'amount', 'currency']].head(10))
+    
     # Stage 3: Validator (Strict Type Checks)
-    final_df = validate_data(categorized_df)
-    print("\n--- Stage 3 Output (Validated & Standardized) ---")
-    print(final_df.head())
+    # We validate the final ledger splits
+    final_df = validate_data(ledger_df)
+    print("\n--- Stage 3 Output (Validated & Standardized Ledger) ---")
+    print(final_df.head(10))
     print("\nProcess Complete.")

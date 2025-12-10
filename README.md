@@ -1,6 +1,6 @@
 # The Sniffer & Mapper
 
-**Project Status:** Implemented Stages 1-5 (Ingestion, Mapping, Rules Engine, Categorizer, Validation)
+**Project Status:** Implemented Stages 1-6 (Ingestion, Mapping, Rules, Categorizer, Ledger, Validation)
 
 ## Architecture Summary
 This project implements a financial data ingestion engine designed to handle messy bank exports and standardize them into a "Split-Based Ledger" format. The pipeline follows a strict architecture, optimized for local execution using **Llama 3.2**:
@@ -38,7 +38,13 @@ This project implements a financial data ingestion engine designed to handle mes
     - The result is then embedded and cached for future speed.
 - **Benefits**: Zero heavyweight dependencies. No `torch` or `chromadb` required.
 
-### 5. Stage 3: The Validator (Pandera)
+### 5. Stage 6: The Ledger (Split Expansion)
+*Located in `rosetta/ledger.py`*
+- Transforms single-row transactions into a Balanced Double-Entry Ledger.
+- **Normal Transactions**: Generates 2 split rows (Source + Category) summing to zero.
+- **Investment Logic**: Detects "Buy/Sell" intent via Regex, splitting into `Currency` flow (Bank) and `Asset` flow (Investments).
+
+### 6. Stage 3: The Validator (Pandera)
 *Located in `rosetta/validator.py`*
 - Enforces strict type safety using `pandera`.
 - Ensures dates are valid datetimes, amounts are floats, and required fields are present.
@@ -54,6 +60,7 @@ rosettafi/
 │   ├── mapper.py       # Stage 2
 │   ├── rules.py        # Stage 4 (Logic)
 │   ├── categorizer.py  # Stage 5 (Hybrid Classifer)
+│   ├── ledger.py       # Stage 6 (Splits)
 │   ├── validator.py    # Stage 3
 │   └── config.py       # Configuration
 ```

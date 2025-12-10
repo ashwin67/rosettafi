@@ -1,5 +1,5 @@
 import pandas as pd
-import pandera as pa
+import pandera.pandas as pa
 from .config import get_logger
 
 logger = get_logger(__name__)
