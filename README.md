@@ -1,34 +1,49 @@
 # The Sniffer & Mapper
 
-**Project Status:** Implemented Stages 1-3 (Ingestion, Mapping, Validation)
+**Project Status:** Implemented Stages 1-4 (Ingestion, Mapping, Validation, Rules Engine)
 
 ## Architecture Summary
 This project implements a financial data ingestion engine designed to handle messy bank exports and standardize them into a "Split-Based Ledger" format. The pipeline follows a strict architecture:
 
-1.  **Stage 1: The Sniffer (Heuristics)**
-    -   Ingests raw files (CSV).
-    -   Scans the first 20 rows to intelligently identify the actual header row, bypassing metadata and garbage lines.
-    
-2.  **Stage 2: The Mapper (LLM + Instructor)**
-    -   Uses `ollama` (running locally) and `instructor` to analyze the cleaned headers.
-    -   Generates a `ColumnMapping` configuration to map specific CSV columns (e.g., "Buchungstext", "Betrag") to the Universal Data Model (`description`, `amount`).
-    
-3.  **Stage 3: The Validator (Pandera)**
-    -   Enforces type safety and business logic using `pandera` schemas.
-    -   Ensures dates are valid datetimes, amounts are floats/decimals, and identifying splits.
+### 1. Stage 1: The Sniffer (Heuristics)
+*Located in `rosetta/sniffer.py`*
+- Ingests raw files (CSV/TXT).
+- Scans the first 20 rows to intelligently identify the actual header row, bypassing metadata and garbage lines.
+- Handles various delimiters (comma, semicolon).
 
-## Libraries Used
--   **pandas**: Data manipulation.
--   **instructor**: Structured output for LLMs.
--   **ollama**: Local LLM inference.
--   **pandera**: Runtime data validation.
--   **pydantic**: Data modeling.
+### 2. Stage 2: The Mapper (LLM + Instructor)
+*Located in `rosetta/mapper.py`*
+- Uses `ollama` (local `deepseek-r1:8b`) and `instructor` to analyze the cleaned headers.
+- Generates a rich `ColumnMapping` configuration, identifying:
+    - Target columns (`date`, `amount`, `description`).
+    - Decimal Separator (`.` or `,`).
+    - Polarity Logic (Signed, Direction Column, or Debit/Credit columns).
+- Includes robust heuristics fallback if the LLM is unavailable.
 
-## Current Capabilities
--   Can ingest messy CSV strings/files.
--   Identify headers via keyword scoring heuristics.
--   Map columns using DeepSeek R1 (deepseek-r1:8b) (or fallback logic if offline).
--   Validate and output a clean "Split-Based Ledger" DataFrame.
+### 3. Stage 4: The Logic (Rules Engine)
+*Located in `rosetta/rules.py`*
+- Accepts the `ColumnMapping` configuration.
+- Performs **Locale-Aware Parsing** to correctly parse numbers like `1.000,00` (European) or `1,000.00` (US).
+- Applies **Polarity Logic** to ensure expenses are negative and income is positive, handling multiple bank styles (Direction columns, Credit/Debit splits).
+
+### 4. Stage 3: The Validator (Pandera)
+*Located in `rosetta/validator.py`*
+- Enforces strict type safety using `pandera`.
+- Ensures dates are valid datetimes, amounts are floats, and required fields are present.
+
+## Project Structure
+```
+rosettafi/
+├── main.py             # Entry point
+├── requirements.txt
+├── rosetta/            # Core Package
+│   ├── models.py       # Pydantic Schemas
+│   ├── sniffer.py      # Stage 1
+│   ├── mapper.py       # Stage 2
+│   ├── rules.py        # Stage 4 (Logic)
+│   ├── validator.py    # Stage 3
+│   └── config.py       # Configuration
+```
 
 ## Universal Data Model
 | Column | Type | Description |
@@ -36,15 +51,19 @@ This project implements a financial data ingestion engine designed to handle mes
 | `transaction_id` | UUID | Unique ID linking splits |
 | `date` | datetime | Transaction date |
 | `account` | string | Normalized account name |
-| `amount` | float | Transaction amount |
+| `amount` | float | Transaction amount (Signed: -Expense, +Income) |
 | `currency` | string | Currency code (EUR default) |
 | `meta` | JSON | Original row data |
 
-## Next Steps
--   **Stage 4:** Logic/Polarity flipping (Handling debit/credit column logic).
--   **Stage 5:** Hybrid Categorization with Vector DB (Auto-categorizing based on description using embeddings).
-
 ## Usage
+
+### Prerequisites
+Ensure you have [Ollama](https://ollama.com) installed and running. You will need to pull the specific model used by this pipeline:
+```bash
+ollama pull deepseek-r1:8b
+```
+
+### Running the Project
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
