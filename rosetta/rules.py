@@ -95,7 +95,19 @@ class RulesEngine:
             
         # Create Result DataFrame
         result = pd.DataFrame()
-        result['transaction_id'] = [str(uuid.uuid4()) for _ in range(len(df))]
+        
+        # Deterministic ID Generation
+        import hashlib
+        def generate_id(row):
+            # content string: date_str + amount_str + desc_str
+            d_str = str(row[self.mapping.date_col])
+            a_str = str(row[self.mapping.amount_col]) if self.mapping.amount_col else ""
+            desc_str = str(row[self.mapping.desc_col])
+            
+            content = f"{d_str}{a_str}{desc_str}".encode('utf-8')
+            return str(uuid.UUID(hashlib.sha256(content).hexdigest()[:32]))
+
+        result['transaction_id'] = df.apply(generate_id, axis=1)
         result['date'] = date_series
         result['account'] = "Assets:Bank:Unknown" 
         result['amount'] = signed_amount

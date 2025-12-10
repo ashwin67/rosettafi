@@ -41,8 +41,15 @@ if __name__ == "__main__":
     print("\n--- Stage 4 Output (Normalized DataFrame) ---")
     print(normalized_df[['date', 'amount', 'transaction_id']].head())
     
+    # Stage 5: Categorizer (Classify Transactions)
+    from rosetta.categorizer import Categorizer
+    categorizer = Categorizer()
+    categorized_df = categorizer.run_categorization(normalized_df, mapping)
+    print("\n--- Stage 5 Output (Categorized DataFrame) ---")
+    print(categorized_df[['date', 'amount', 'account']].head())
+    
     # Stage 3: Validator (Strict Type Checks)
-    final_df = validate_data(normalized_df)
+    final_df = validate_data(categorized_df)
     print("\n--- Stage 3 Output (Validated & Standardized) ---")
     print(final_df.head())
     print("\nProcess Complete.")

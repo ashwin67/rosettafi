@@ -65,6 +65,17 @@ def get_column_mapping(df: pd.DataFrame) -> ColumnMapping:
         if mapping.amount_col:
             mapping.amount_col = mapping.amount_col.strip()
         
+        # Validation Logic: Case A Requires amount_col
+        if mapping.polarity.type == 'signed' and not mapping.amount_col:
+            # Fallback for amount column finding if LLM missed it
+            # We re-run heuristic logic just for this
+             lower_headers = [h.lower() for h in raw_headers]
+             amount_idx = next((i for i, h in enumerate(lower_headers) if any(x in h for x in ['amount', 'betrag', 'eur'])), -1)
+             if amount_idx != -1:
+                mapping.amount_col = raw_headers[amount_idx]
+             else:
+                mapping.amount_col = raw_headers[1] if len(raw_headers)>1 else raw_headers[0]
+                
     return mapping
 
 def create_fallback_mapping(headers: list[str]) -> ColumnMapping:
@@ -110,6 +121,9 @@ def create_fallback_mapping(headers: list[str]) -> ColumnMapping:
         else:
             # Default to Case A (Signed)
             polarity = PolarityCaseA()
+            if amount_col is None:
+                # If we somehow missed it, default to 2nd column or fail
+                amount_col = headers[1] if len(headers) > 1 else headers[0]
 
     # 3. Decimal Separator Guess: Default to Dot for fallback, or maybe Comma if german words found?
     # Simple heuristic

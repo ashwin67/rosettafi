@@ -1,6 +1,6 @@
 # The Sniffer & Mapper
 
-**Project Status:** Implemented Stages 1-4 (Ingestion, Mapping, Validation, Rules Engine)
+**Project Status:** Implemented Stages 1-5 (Ingestion, Mapping, Rules Engine, Categorizer, Validation)
 
 ## Architecture Summary
 This project implements a financial data ingestion engine designed to handle messy bank exports and standardize them into a "Split-Based Ledger" format. The pipeline follows a strict architecture:
@@ -26,7 +26,13 @@ This project implements a financial data ingestion engine designed to handle mes
 - Performs **Locale-Aware Parsing** to correctly parse numbers like `1.000,00` (European) or `1,000.00` (US).
 - Applies **Polarity Logic** to ensure expenses are negative and income is positive, handling multiple bank styles (Direction columns, Credit/Debit splits).
 
-### 4. Stage 3: The Validator (Pandera)
+### 4. Stage 5: The Categorizer (LLM)
+*Located in `rosetta/categorizer.py`*
+- Replaces the default `Assets:Bank:Unknown` account with specific categories (e.g., `Expenses:Groceries`).
+- Uses `deepseek-r1:8b` via `instructor` to classify transaction descriptions based on predefined categories.
+- Upgradable simplified architecture ready for vector database integration.
+
+### 5. Stage 3: The Validator (Pandera)
 *Located in `rosetta/validator.py`*
 - Enforces strict type safety using `pandera`.
 - Ensures dates are valid datetimes, amounts are floats, and required fields are present.
@@ -41,6 +47,7 @@ rosettafi/
 │   ├── sniffer.py      # Stage 1
 │   ├── mapper.py       # Stage 2
 │   ├── rules.py        # Stage 4 (Logic)
+│   ├── categorizer.py  # Stage 5
 │   ├── validator.py    # Stage 3
 │   └── config.py       # Configuration
 ```
