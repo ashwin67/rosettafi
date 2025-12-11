@@ -49,6 +49,16 @@ This project implements a financial data ingestion engine designed to handle mes
 - Enforces strict type safety using `pandera`.
 - Ensures dates are valid datetimes, amounts are floats, and required fields are present.
 
+### 7. Global Workspace
+*Located in `rosetta/workspace.py`*
+- Implements a Singleton `Workspace` class managing all file I/O paths.
+- Automatically ensures the existence of the `~/.rosetta_cache/` directory structure:
+    - `configs/`: Stores `bank_configs.json`
+    - `memory/`: Stores `category_memory.json`
+    - `logs/`: Application logs
+    - `quarantine/`: Invalid rows dumped here
+    - `temp/`: Temporary processing files
+
 ## Project Structure
 ```
 rosettafi/
@@ -62,6 +72,7 @@ rosettafi/
 │   ├── categorizer.py  # Stage 5 (Hybrid Classifer)
 │   ├── ledger.py       # Stage 6 (Splits)
 │   ├── validator.py    # Stage 3
+│   ├── workspace.py    # Workspace & Cache Management
 │   └── config.py       # Configuration
 ```
 

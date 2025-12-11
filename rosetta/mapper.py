@@ -6,10 +6,12 @@ import hashlib
 import os
 from .models import ColumnMapping, PolarityCaseA, PolarityCaseB, PolarityCaseC, DecimalSeparator
 from .config import get_logger
+from .workspace import Workspace
 
 logger = get_logger(__name__)
 
-CONFIG_FILE = "bank_configs.json"
+workspace = Workspace()
+CONFIG_FILE = workspace.get_bank_config_path()
 
 def get_column_mapping(df: pd.DataFrame, confirm_mapping: bool = False) -> ColumnMapping:
     """

@@ -8,10 +8,11 @@ import nest_asyncio
 import numpy as np
 from scipy.spatial.distance import cosine
 from openai import AsyncOpenAI
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from enum import Enum
 from typing import List, Dict, Optional
 from .config import get_logger
+from .workspace import Workspace
 
 # Enable nested event loops for notebook/script compatibility
 nest_asyncio.apply()
@@ -27,10 +28,11 @@ class CategoryEnum(str, Enum):
     UNKNOWN = "Expenses:Unknown"
 
 class TransactionCategory(BaseModel):
-    category: CategoryEnum
+    category: CategoryEnum = Field(..., description="The category that best matches the transaction description and amount.")
 
 class Categorizer:
-    def __init__(self, memory_file: str = "category_memory.json"):
+    def __init__(self, memory_file: Optional[str] = None):
+        workspace = Workspace()
         # Initialize Async Instructor Client for Batch Processing (Slow Path)
         self.llm_client = instructor.from_openai(
             AsyncOpenAI(
@@ -45,7 +47,7 @@ class Categorizer:
         
         # Lightweight Vector Memory (In-Memory List of Dicts)
         # Structure: [{"embedding": [float], "category": str, "description": str}]
-        self.memory_file = memory_file
+        self.memory_file = memory_file if memory_file else workspace.get_memory_path()
         self.memory: List[Dict] = []
         self.load_memory()
         
@@ -139,19 +141,25 @@ class Categorizer:
                     model="llama3.2",
                     messages=[
                         {
+                            "role": "system",
+                            "content": "You are a precise financial classifier. You must output valid JSON matching the schema."
+                        },
+                        {
                             "role": "user",
                             "content": f"""
                             Classify this financial transaction into a category.
                             Description: {description}
                             Amount: {amount}
                             
-                            Categories:
+                            Allowed Categories:
                             - Expenses:Groceries (Supermarkets, Food)
                             - Expenses:Travel (Trains, Flights, Hotels)
                             - Expenses:Utilities (Bills, Internet, Phone)
                             - Income:Standard (Salary, Refunds)
                             - Transfers (Internal transfers)
                             - Expenses:Unknown (If unsure)
+
+                            Output strictly the JSON object.
                             """
                         }
                     ],

@@ -1,7 +1,9 @@
 import pandas as pd
+import os
 import pandera.pandas as pa
 from pandera.errors import SchemaErrors
 from .config import get_logger
+from .workspace import Workspace
 
 logger = get_logger(__name__)
 
@@ -39,7 +41,9 @@ def validate_data(df: pd.DataFrame) -> pd.DataFrame:
         logger.info(f"Quarantined {len(quarantine_df)} rows. {len(clean_df)} clean rows proceeding.")
         
         # Save Quarantine
-        quarantine_filename = "quarantine_data.csv"
+        workspace = Workspace()
+        quarantine_dir = workspace.get_quarantine_path()
+        quarantine_filename = os.path.join(quarantine_dir, "quarantine_data.csv")
         try:
             quarantine_df.to_csv(quarantine_filename, index=False)
             logger.info(f"Saved quarantined rows to {quarantine_filename}")
