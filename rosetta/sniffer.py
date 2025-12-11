@@ -11,8 +11,23 @@ def sniff_header_row(file_path_or_buffer) -> pd.DataFrame:
     """
     logger.info("Stage 1: Sniffing for header...")
     
-    # Read first 20 lines without header
-    if isinstance(file_path_or_buffer, str):
+    # Detect Excel files
+    is_excel = False
+    if isinstance(file_path_or_buffer, str) and (file_path_or_buffer.endswith('.xlsx') or file_path_or_buffer.endswith('.xls')):
+        is_excel = True
+        logger.info("Detected Excel file. Converting to CSV buffer for analysis...")
+        # Read Excel w/o header initially to capture everything
+        temp_df = pd.read_excel(file_path_or_buffer, header=None)
+        # Convert to CSV string buffer for the rest of the existing logic
+        csv_buffer = io.StringIO()
+        temp_df.to_csv(csv_buffer, index=False, header=False)
+        csv_buffer.seek(0)
+        
+        # Override input to be this new CSV buffer
+        file_path_or_buffer = csv_buffer
+        lines = file_path_or_buffer.getvalue().splitlines()[:20]
+
+    elif isinstance(file_path_or_buffer, str):
         # Determine if file path or string content
         try:
             if file_path_or_buffer.endswith('.csv') or file_path_or_buffer.endswith('.txt'):
@@ -61,7 +76,10 @@ def sniff_header_row(file_path_or_buffer) -> pd.DataFrame:
     # Re-reading the whole file log properly
     
     all_lines = []
-    if isinstance(file_path_or_buffer, str) and not '\n' in file_path_or_buffer and (file_path_or_buffer.endswith('.csv') or file_path_or_buffer.endswith('.txt')):
+    if is_excel:
+        file_path_or_buffer.seek(0)
+        all_lines = file_path_or_buffer.readlines() # Already normalized to CSV buffer
+    elif isinstance(file_path_or_buffer, str) and not '\n' in file_path_or_buffer and (file_path_or_buffer.endswith('.csv') or file_path_or_buffer.endswith('.txt')):
         # File path
         with open(file_path_or_buffer, 'r') as f:
             all_lines = f.readlines()

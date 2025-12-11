@@ -8,24 +8,43 @@ logger = get_logger(__name__)
 
 if __name__ == "__main__":
     
-    # 1. Create Mock Messy CSV (European Format: Semicolons, Comma Decimals)
-    mock_csv_data = """
-    Bank of Antigravity - Account Statement
-    Generated: 2023-10-27
-    Account: 123-456-789
+    import argparse
+    import os
+    import sys
+
+    parser = argparse.ArgumentParser(description='RosettaFi - Financial Data Ingestion Pipeline')
+    parser.add_argument('file', nargs='?', help='Path to the input bank export file (CSV, TXT, Excel)')
+    args = parser.parse_args()
+
+    input_source = None
     
-    Disclaimer: This is not legal advice.
-    
-    Transaction Date;Valuta Date;Booking Text;Betrag EUR;Balance
-    01.10.2023;01.10.2023;Supermarket Purchase;-50,20;1.000,00
-    02.10.2023;02.10.2023;Monthly Salary;3.500,00;4.500,00
-    05.10.2023;05.10.2023;Coffee Shop;-4,50;4.495,50
-    """
+    if args.file:
+        if not os.path.exists(args.file):
+            logger.error(f"File not found: {args.file}")
+            sys.exit(1)
+        logger.info(f"Processing input file: {args.file}")
+        input_source = args.file
+    else:
+        logger.info("No input file provided. Using built-in Mock Data.")
+        # 1. Create Mock Messy CSV (European Format: Semicolons, Comma Decimals)
+        mock_csv_data = """
+        Bank of Antigravity - Account Statement
+        Generated: 2023-10-27
+        Account: 123-456-789
+        
+        Disclaimer: This is not legal advice.
+        
+        Transaction Date;Valuta Date;Booking Text;Betrag EUR;Balance
+        01.10.2023;01.10.2023;Supermarket Purchase;-50,20;1.000,00
+        02.10.2023;02.10.2023;Monthly Salary;3.500,00;4.500,00
+        05.10.2023;05.10.2023;Coffee Shop;-4,50;4.495,50
+        """
+        input_source = mock_csv_data
     
     logger.info("Initializing Sniffer & Mapper Engine (Refactored)...")
     
     # Stage 1: Sniffer
-    clean_df = sniff_header_row(mock_csv_data)
+    clean_df = sniff_header_row(input_source)
     print("\n--- Stage 1 Output (Sniffed DataFrame) ---")
     print(clean_df.head())
     
@@ -61,4 +80,12 @@ if __name__ == "__main__":
     final_df = validate_data(ledger_df)
     print("\n--- Stage 3 Output (Validated & Standardized Ledger) ---")
     print(final_df.head(10))
+    
+    # Save to Workspace Temp
+    from rosetta.workspace import Workspace
+    workspace = Workspace()
+    output_path = workspace.temp_dir / "output.csv"
+    final_df.to_csv(output_path, index=False)
+    logger.info(f"Final output saved to: {output_path}")
+
     print("\nProcess Complete.")

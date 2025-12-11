@@ -7,3 +7,5 @@ openai
 scipy
 numpy
 nest_asyncio
+xlrd
+openpyxl
