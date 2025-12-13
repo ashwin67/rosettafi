@@ -2,7 +2,7 @@ import pandas as pd
 import io
 from .config import get_logger
 from rosetta.logic.sniffer_logic import detect_header_by_density, detect_header_by_keywords
-from rosetta.data.sniffer_constants import SNIFF_WINDOW_SIZE
+from rosetta.data.constants import SNIFF_WINDOW_SIZE
 
 logger = get_logger(__name__)
 

@@ -1,6 +1,6 @@
 import re
 from typing import List, Optional, Tuple
-from rosetta.data.sniffer_constants import HEADER_KEYWORDS, DATA_DENSITY_THRESHOLD, DATA_SEPARATORS, SNIFF_WINDOW_SIZE
+from rosetta.data.constants import SNIFFER_HEADER_KEYWORDS as HEADER_KEYWORDS, DATA_DENSITY_THRESHOLD, DATA_SEPARATORS
 from rosetta.config import get_logger
 
 logger = get_logger(__name__)

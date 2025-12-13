@@ -12,14 +12,13 @@ This project implements a financial data ingestion engine designed to handle mes
 - Fallback to keyword matching if density is inconclusive.
 - Gracefully handles messy data, skipping malformed rows.
 
-### 2. Stage 2: The Mapper (LLM + Instructor)
-*Located in `rosetta/mapper.py`*
-- Uses `ollama` (local `llama3.2`) and `instructor` to analyze the cleaned headers.
-- Generates a rich `ColumnMapping` configuration, identifying:
-    - Target columns (`date`, `amount`, `description`).
-    - Decimal Separator (`.` or `,`).
-    - Polarity Logic (Signed, Direction Column, or Debit/Credit columns).
-- Includes robust heuristics fallback if the LLM is unavailable.
+### 2. Stage 2: The Mapper (MVC + Strict Logic)
+*Located in `rosetta/mapper.py` and `rosetta/constants.py`*
+- **MVC Architecture**: Strict separation of Configuration (prompts/keywords in `constants.py`) and Logic (`mapper.py`).
+- **Two-Step Logic**:
+    1. **LLM Analysis**: Uses `ollama` + `instructor` to generate a `ColumnMapping` object.
+    2. **Heuristic Fallback**: If the LLM fails, a robust standalone heuristic (`_heuristic_map_columns`) determines the mapping based on keyword density and localized patterns.
+- **Persistence**: Caches mapping decisions in `bank_configs.json` based on header hashes.
 
 ### 3. Stage 4: The Logic (Rules Engine)
 *Located in `rosetta/rules.py`*
