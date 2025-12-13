@@ -93,6 +93,40 @@ UNICODE_REPLACEMENTS = {
 }
 
 # ==============================================================================
+# STAGE 6: LEDGER CONFIGURATION
+# ==============================================================================
+DEFAULT_ASSET_ACCOUNT = "Assets:Current:Bank"
+DEFAULT_CURRENCY = "EUR"
+
+# Investment Keywords (Locale Agnostic)
+# Maps generic actions to list of local triggers
+INVESTMENT_KEYWORDS = {
+    "buy": ["buy", "purchase", "koop", "aankoop", "achat", "kaufen"],
+    "sell": ["sell", "sold", "verkoop", "vente", "verkaufen"]
+}
+
+# Regex Patterns for "Fast Path" Investment Detection
+# Pattern: Action + Qty + Ticker + @ + Price
+# e.g. "Buy 10 AAPL @ 150.00"
+# Capture Groups: 1=Action, 2=Qty, 3=Ticker, 4=Price
+INVESTMENT_REGEX_PATTERNS = [
+    r"(?i)(buy|sell|koop|verkoop)\s+(\d+)\s+([A-Z]{2,5})\s+@\s+([\d.,]+)"
+]
+
+# System Prompt for Investment Extraction (Slow Path)
+LEDGER_INVESTMENT_PROMPT = """
+You are a financial transaction analyzer.
+Extract investment details from the description.
+Return a valid JSON object with:
+- "action": "buy" or "sell"
+- "quantity": float
+- "ticker": string (Symbol)
+- "price": float (Price per unit)
+
+If you cannot confidently extract these details, return null for all fields.
+"""
+
+# ==============================================================================
 # STAGE 5: CATEGORIZER CONFIGURATION
 # ==============================================================================
 SIMILARITY_THRESHOLD = 0.85

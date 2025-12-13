@@ -13,9 +13,9 @@ TargetSchema = pa.DataFrameSchema({
     "date": pa.Column(pa.DateTime),
     "account": pa.Column(str),
     "amount": pa.Column(float), 
-    "currency": pa.Column(str, checks=pa.Check.isin(["EUR", "USD", "GBP", "JPY"])),
+    "currency": pa.Column(str), # Allow any currency/ticker symbol
     "price": pa.Column(float, nullable=True),
-    "meta": pa.Column(object), # Store JSON or Dict
+    "meta": pa.Column(object, nullable=True), # Store JSON or Dict
 })
 
 def validate_data(df: pd.DataFrame) -> pd.DataFrame:
@@ -32,8 +32,8 @@ def validate_data(df: pd.DataFrame) -> pd.DataFrame:
         
         # Separate Clean vs Quarantine
         # e.failure_cases is a DataFrame.
-        # Get the index of failure cases.
-        bad_indices = e.failure_cases['index'].unique()
+        # Get the index of failure cases. Drop None/NaN for schema-level errors.
+        bad_indices = e.failure_cases['index'].dropna().unique()
         
         clean_df = df.drop(index=bad_indices)
         quarantine_df = df.loc[bad_indices]

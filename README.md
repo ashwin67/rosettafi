@@ -38,11 +38,13 @@ A robust 4-layer pipeline to handle noisy data ("Garbage In") and prevent halluc
 4. **Agent Layer**: LLM (`llama3.2`) with Chain-of-Thought reasoning for novel concepts.
 *Self-Healing*: Decisions from the Agent are fed back into the Matcher's memory.
 
-### 5. Stage 6: The Ledger (Split Expansion)
-*Located in `rosetta/ledger.py`*
-- Transforms single-row transactions into a Balanced Double-Entry Ledger.
-- **Normal Transactions**: Generates 2 split rows (Source + Category) summing to zero.
-- **Investment Logic**: Detects "Buy/Sell" intent via Regex, splitting into `Currency` flow (Bank) and `Asset` flow (Investments).
+### 5. Stage 6: The Ledger (Double-Entry Engine)
+*Located in `rosetta/logic/ledger.py`*
+- **Standard**: Converts single-row expenses into 2-row Double-Entry splits (Asset Credit / Expense Debit).
+- **Hybrid Investments**:
+    - **Fast Path**: Regex extraction for deterministic patterns ("Buy 10 AAPL @ 150").
+    - **Slow Path**: LLM extraction for complex notes ("Purchase of 50 units...").
+- **Configurable**: Accounts and Currency defined in `rosetta/data/constants.py`.
 
 ### 6. Stage 3: The Validator (Pandera)
 *Located in `rosetta/validator.py`*
