@@ -57,13 +57,17 @@ def get_column_mapping(df: pd.DataFrame, confirm_mapping: bool = False) -> Colum
                     
                     Analyze the CSV structure to determine:
                     1. The columns for Date, Amount, and Description.
+                       - Date keywords: 'Date', 'Datum', 'Transactiedatum'
+                       - Amount keywords: 'Amount', 'Bedrag', 'Transactiebedrag', 'Debit', 'Credit'
+                       - Description keywords: 'Description', 'Omschrijving', 'Mededelingen', 'Naam'
                     2. The Decimal Separator (Comma ',' or Dot '.'). European formats often use comma.
                     3. The Polarity Logic (How to distinguish income vs expense).
                        - Case A: One 'Amount' column with signed values (e.g. -50.00).
                        - Case B: One 'Amount' column + a 'Direction' column (e.g. Credit/Debit words).
                        - Case C: Separate 'Credit' and 'Debit' value columns.
                     
-                    Return a JSON object matching the ColumnMapping schema.
+                    Return a valid JSON object instance matching the ColumnMapping schema.
+                    IMPORTANT: Do NOT return the JSON Schema definition. Return the actual mapping data.
                     """
                 }
             ],
@@ -141,8 +145,8 @@ def create_fallback_mapping(headers: list[str]) -> ColumnMapping:
     lower_headers = [h.lower() for h in headers]
     
     # 1. Identify key columns
-    date_col = next((h for h in headers if 'date' in h.lower()), headers[0])
-    desc_col = next((h for h in headers if any(x in h.lower() for x in ['text', 'desc', 'book', 'narr'])), headers[-1])
+    date_col = next((h for h in headers if any(x in h.lower() for x in ['date', 'datum'])), headers[0])
+    desc_col = next((h for h in headers if any(x in h.lower() for x in ['text', 'desc', 'book', 'narr', 'omschrijving', 'mededelingen', 'naam', 'name'])), headers[-1])
     
     # 2. Check for Credit/Debit columns (Case C)
     credit_idx = next((i for i, h in enumerate(lower_headers) if 'credit' in h and 'card' not in h), -1)
@@ -159,7 +163,7 @@ def create_fallback_mapping(headers: list[str]) -> ColumnMapping:
         )
     else:
         # Look for Amount
-        amount_idx = next((i for i, h in enumerate(lower_headers) if any(x in h for x in ['amount', 'betrag', 'eur'])), -1)
+        amount_idx = next((i for i, h in enumerate(lower_headers) if any(x in h for x in ['amount', 'betrag', 'eur', 'bedrag'])), -1)
         if amount_idx != -1:
             amount_col = headers[amount_idx]
         else:
@@ -184,7 +188,7 @@ def create_fallback_mapping(headers: list[str]) -> ColumnMapping:
     # 3. Decimal Separator Guess: Default to Dot for fallback, or maybe Comma if german words found?
     # Simple heuristic
     decimal_sep = DecimalSeparator.DOT
-    if any(x in "".join(lower_headers) for x in ['betrag', 'valuta', 'buchung']):
+    if any(x in "".join(lower_headers) for x in ['betrag', 'valuta', 'buchung', 'bedrag']):
         decimal_sep = DecimalSeparator.COMMA
         
     return ColumnMapping(

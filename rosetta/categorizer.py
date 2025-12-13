@@ -159,7 +159,13 @@ class Categorizer:
                             - Transfers (Internal transfers)
                             - Expenses:Unknown (If unsure)
 
-                            Output strictly the JSON object.
+                            Output strictly the JSON object instance. 
+                            IMPORTANT: Do NOT return the JSON Schema definition. Return the actual category data.
+                            
+                            Example Output:
+                            {{
+                              "category": "Expenses:Groceries"
+                            }}
                             """
                         }
                     ],

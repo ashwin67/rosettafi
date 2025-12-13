@@ -21,6 +21,9 @@ class RulesEngine:
         # Clean common currency symbols
         s = s.replace("EUR", "").replace("USD", "").replace("$", "").replace("€", "").strip()
         
+        # Handle unicode minus and spaces
+        s = s.replace("−", "-").replace(" ", "")
+        
         if decimal_sep == DecimalSeparator.DOT:
              # Standard US/Scientific: 1,000.50 -> 1000.50
              # Remove thousands separator (comma)
@@ -39,7 +42,10 @@ class RulesEngine:
         logger.info("Stage 4: Rules Engine - Normalizing Data...")
         
         # Date Parsing
-        date_series = pd.to_datetime(df[self.mapping.date_col], errors='coerce')
+        # Convert to string first to handle integer dates (e.g. 20240831) correctly
+        # Also clean potential '.0' suffix (e.g. "20240831.0") from float conversion
+        date_str = df[self.mapping.date_col].astype(str).str.replace(r'\.0$', '', regex=True)
+        date_series = pd.to_datetime(date_str, errors='coerce')
         
         # Polarity Handling & Amount Parsing
         p = self.mapping.polarity
