@@ -1,6 +1,8 @@
 import pandas as pd
 import io
 from .config import get_logger
+from rosetta.logic.sniffer_logic import detect_header_by_density, detect_header_by_keywords
+from rosetta.data.sniffer_constants import SNIFF_WINDOW_SIZE
 
 logger = get_logger(__name__)
 
@@ -25,74 +27,85 @@ def sniff_header_row(file_path_or_buffer) -> pd.DataFrame:
         
         # Override input to be this new CSV buffer
         file_path_or_buffer = csv_buffer
-        lines = file_path_or_buffer.getvalue().splitlines()[:20]
 
-    elif isinstance(file_path_or_buffer, str):
-        # Determine if file path or string content
-        try:
-            if file_path_or_buffer.endswith('.csv') or file_path_or_buffer.endswith('.txt'):
-                 # It's a file path
-                 with open(file_path_or_buffer, 'r') as f:
-                    lines = [next(f) for _ in range(20)]
-            else:
-                 # It's content
-                 raise Exception("Not a file path")
-        except Exception:
-             # Treat as string buffer
-            lines = file_path_or_buffer.splitlines()[:20]
-            file_path_or_buffer = io.StringIO(file_path_or_buffer)
+    # Read lines for analysis
+    lines = []
+    
+    # Logic to populate 'lines' based on input type
+    # We need to be careful to not consume the buffer permanently if possible, or reset it.
+    
+    if isinstance(file_path_or_buffer, str):
+        # File path (CSV/TXT)
+        if not '\n' in file_path_or_buffer and (file_path_or_buffer.endswith('.csv') or file_path_or_buffer.endswith('.txt')):
+             with open(file_path_or_buffer, 'r') as f:
+                lines = [next(f) for _ in range(SNIFF_WINDOW_SIZE)]
+        else:
+             # String content
+             lines = file_path_or_buffer.splitlines()[:SNIFF_WINDOW_SIZE]
+             # If it was a string content, we need to wrap it for later reading if it's not a file path
+             if not isinstance(file_path_or_buffer, io.StringIO):
+                  file_path_or_buffer = io.StringIO(file_path_or_buffer)
+
     elif isinstance(file_path_or_buffer, io.StringIO):
-         lines = file_path_or_buffer.getvalue().splitlines()[:20]
+         lines = file_path_or_buffer.getvalue().splitlines()[:SNIFF_WINDOW_SIZE]
          file_path_or_buffer.seek(0)
     else:
-        # Fallback for other file-like objects
-        lines = [line.decode('utf-8') for line in file_path_or_buffer.readlines()[:20]]
-        file_path_or_buffer.seek(0)
+        # Fallback for other file-like objects (e.g. valid bytes buffer if we supported it, but mainly text io)
+        # Assuming text mode for now based on existing code
+        try:
+            lines = [line for line in file_path_or_buffer.readlines()[:SNIFF_WINDOW_SIZE]]
+            file_path_or_buffer.seek(0)
+        except Exception:
+             # If readlines fails (e.g. bytes), try decoding? 
+             # For now adhering to existing logic which seemed to assume text.
+             pass
 
-    keywords = ['date', 'booking', 'transaction', 'amount', 'debit', 'credit', 'description', 'memo', 'payee', 'valuta']
+    # Strategy 1: Data Density Heuristic
+    best_row_idx = detect_header_by_density(lines)
     
-    best_row_idx = 0
-    max_score = -1
+    # Strategy 2: Keyword Fallback
+    if best_row_idx is None:
+        best_row_idx = detect_header_by_keywords(lines)
 
-    for idx, line in enumerate(lines):
-        score = 0
-        line_lower = line.lower()
-        for kw in keywords:
-            if kw in line_lower:
-                score += 1
-        
-        # Heuristic: Valid headers usually have delimiters (comma/semicolon)
-        if ',' in line or ';' in line:
-            score += 1
-            
-        if score > max_score:
-            max_score = score
-            best_row_idx = idx
-
-    logger.info(f"Identified header at row index: {best_row_idx} (Score: {max_score})")
+    logger.info(f"Final Header Decision: Row {best_row_idx}")
     
-    # Reload dataframe with correct header
-    # We manually slice the lines to avoid ambiguities with read_csv's header/skip_blank_lines logic
-    # Re-reading the whole file log properly
+    # Load Dataframe
+    # We need to read the FULL content now, starting from best_row_idx
     
     all_lines = []
     if is_excel:
         file_path_or_buffer.seek(0)
-        all_lines = file_path_or_buffer.readlines() # Already normalized to CSV buffer
-    elif isinstance(file_path_or_buffer, str) and not '\n' in file_path_or_buffer and (file_path_or_buffer.endswith('.csv') or file_path_or_buffer.endswith('.txt')):
-        # File path
-        with open(file_path_or_buffer, 'r') as f:
-            all_lines = f.readlines()
+        all_lines = file_path_or_buffer.readlines()
     elif isinstance(file_path_or_buffer, io.StringIO):
         file_path_or_buffer.seek(0)
         all_lines = file_path_or_buffer.readlines()
     elif isinstance(file_path_or_buffer, str):
-        all_lines = file_path_or_buffer.splitlines(keepends=True)
-             
+         # If it's a file path
+         if not '\n' in file_path_or_buffer and (file_path_or_buffer.endswith('.csv') or file_path_or_buffer.endswith('.txt')):
+            with open(file_path_or_buffer, 'r') as f:
+                all_lines = f.readlines()
+         else:
+            # It's content, but we wrapped it in StringIO earlier if it was passed as string logic? 
+            # Actually, let's just split the string again if it is a string.
+             all_lines = file_path_or_buffer.splitlines(keepends=True)
+    else:
+         # File object
+         file_path_or_buffer.seek(0)
+         all_lines = file_path_or_buffer.readlines()
+
+    if not all_lines:
+        logger.warning("No content found to create DataFrame.")
+        return pd.DataFrame()
+
     clean_content = "".join(all_lines[best_row_idx:])
     
-    # Use io.StringIO to create a buffer
-    df = pd.read_csv(io.StringIO(clean_content), sep=None, engine='python')
+    try:
+        # Use on_bad_lines='skip' to handle rows with extra/missing separators gracefully
+        df = pd.read_csv(io.StringIO(clean_content), sep=None, engine='python', on_bad_lines='skip')
+    except pd.errors.EmptyDataError:
+        logger.warning("Empty data after header slice.")
+        return pd.DataFrame()
+        
     df.columns = df.columns.str.strip()
     
     return df

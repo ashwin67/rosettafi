@@ -5,6 +5,8 @@
 env/
 venv/
 .venv/
+.vscode/
+.inputs/
 build/
 develop-eggs/
 dist/

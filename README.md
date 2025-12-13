@@ -6,10 +6,11 @@
 This project implements a financial data ingestion engine designed to handle messy bank exports and standardize them into a "Split-Based Ledger" format. The pipeline follows a strict architecture, optimized for local execution using **Llama 3.2**:
 
 ### 1. Stage 1: The Sniffer (Heuristics)
-*Located in `rosetta/sniffer.py`*
-- Ingests raw files (CSV/TXT).
-- Scans the first 20 rows to intelligently identify the actual header row, bypassing metadata and garbage lines.
-- Handles various delimiters (comma, semicolon).
+*Located in `rosetta/sniffer.py` (facade), `rosetta/logic/`, `rosetta/data/`*
+- Ingests raw files (CSV/TXT) and **Excel files** (.xls, .xlsx) via conversion.
+- Uses a robust **Token-Based Data Density Heuristic** to identify the header row, distinguishing it from metadata and long-text descriptions.
+- Fallback to keyword matching if density is inconclusive.
+- Gracefully handles messy data, skipping malformed rows.
 
 ### 2. Stage 2: The Mapper (LLM + Instructor)
 *Located in `rosetta/mapper.py`*
@@ -66,7 +67,11 @@ rosettafi/
 ├── requirements.txt    # Minimal dependencies (numpy, scipy, ollama, instructor)
 ├── rosetta/            # Core Package
 │   ├── models.py       # Pydantic Schemas
-│   ├── sniffer.py      # Stage 1
+│   ├── sniffer.py      # Stage 1 (Facade)
+│   ├── data/
+│   │   └── sniffer_constants.py
+│   ├── logic/
+│   │   └── sniffer_logic.py
 │   ├── mapper.py       # Stage 2
 │   ├── rules.py        # Stage 4 (Logic)
 │   ├── categorizer.py  # Stage 5 (Hybrid Classifer)
