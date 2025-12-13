@@ -1,130 +1,196 @@
 import pandas as pd
 import numpy as np
 import uuid
+import re
+from abc import ABC, abstractmethod
+from typing import Union
 from .models import ColumnMapping, DecimalSeparator
 from .config import get_logger
+from .data.constants import CLEAN_CURRENCY_REGEX, UNICODE_REPLACEMENTS
 
 logger = get_logger(__name__)
 
-class RulesEngine:
-    def __init__(self, mapping: ColumnMapping):
-        self.mapping = mapping
+# ==============================================================================
+# STRATEGY PATTERN: PARSING
+# ==============================================================================
 
-    def parse_float(self, val, decimal_sep: DecimalSeparator):
+class ParsingStrategy(ABC):
+    """Abstract Base Class for Locale-Specific Parsing Strategies."""
+    
+    @abstractmethod
+    def parse_float(self, val: any) -> float:
+        pass
+
+class USParsingStrategy(ParsingStrategy):
+    """
+    Handles standard US/UK formats: 1,234.56
+    - Decimal Separator: Dot (.)
+    - Thousands Separator: Comma (,)
+    """
+    def parse_float(self, val: any) -> float:
         if pd.isna(val) or val == "":
             return 0.0
-        
         if isinstance(val, (int, float)):
             return float(val)
             
         s = str(val).strip()
-        # Clean common currency symbols
-        s = s.replace("EUR", "").replace("USD", "").replace("$", "").replace("€", "").strip()
+        # 1. Normalize Unicode (e.g. minus signs)
+        for k, v in UNICODE_REPLACEMENTS.items():
+            s = s.replace(k, v)
+            
+        # 2. Clean Currency Symbols and Spaces
+        s = re.sub(CLEAN_CURRENCY_REGEX, '', s)
+
+        # 3. Remove Thousands Separator (Comma)
+        s = s.replace(',', '')
         
-        # Handle unicode minus and spaces
-        s = s.replace("−", "-").replace(" ", "")
-        
-        if decimal_sep == DecimalSeparator.DOT:
-             # Standard US/Scientific: 1,000.50 -> 1000.50
-             # Remove thousands separator (comma)
-             s = s.replace(",", "")
-        else:
-             # European: 1.000,50 -> 1000.50
-             # Remove thousands separator (dot) and replace decimal comma with dot
-             s = s.replace(".", "").replace(",", ".")
-             
         try:
             return float(s)
         except ValueError:
+            logger.warning(f"USParsingStrategy failed for value: {val}")
             return 0.0
 
-    def apply(self, df: pd.DataFrame) -> pd.DataFrame:
-        logger.info("Stage 4: Rules Engine - Normalizing Data...")
+class EUParsingStrategy(ParsingStrategy):
+    """
+    Handles European formats: 1.234,56
+    - Decimal Separator: Comma (,)
+    - Thousands Separator: Dot (.) or Space
+    """
+    def parse_float(self, val: any) -> float:
+        if pd.isna(val) or val == "":
+            return 0.0
+        if isinstance(val, (int, float)):
+            return float(val)
+            
+        s = str(val).strip()
+        # 1. Normalize Unicode
+        for k, v in UNICODE_REPLACEMENTS.items():
+            s = s.replace(k, v)
         
-        # Date Parsing
-        # Convert to string first to handle integer dates (e.g. 20240831) correctly
-        # Also clean potential '.0' suffix (e.g. "20240831.0") from float conversion
+        # 2. Clean Currency & Garbage
+        s = re.sub(CLEAN_CURRENCY_REGEX, '', s)
+        
+        # 3. Handle EU Logic: Remove dots (thousands), Replace comma with dot (decimal)
+        s = s.replace('.', '') # Remove thousands separator
+        s = s.replace(',', '.') # Convert decimal comma to dot
+        
+        try:
+            return float(s)
+        except ValueError:
+            logger.warning(f"EUParsingStrategy failed for value: {val}")
+            return 0.0
+
+# ==============================================================================
+# RULES ENGINE
+# ==============================================================================
+
+class RulesEngine:
+    def __init__(self, mapping: ColumnMapping):
+        self.mapping = mapping
+        self.strategy = self._get_strategy()
+        
+    def _get_strategy(self) -> ParsingStrategy:
+        if self.mapping.decimal_separator == DecimalSeparator.DOT:
+            return USParsingStrategy()
+        else:
+            return EUParsingStrategy()
+
+    def parse_float(self, val) -> float:
+        """Facade to the strategy's parse method."""
+        return self.strategy.parse_float(val)
+
+    # --- Polarity Helpers ---
+    
+    def _apply_case_a(self, df: pd.DataFrame) -> pd.Series:
+        """Case A: Signed Amount column."""
+        col = self.mapping.amount_col
+        if not col:
+            logger.warning("Case A requres amount_col. Returning zeros.")
+            return pd.Series(0.0, index=df.index)
+            
+        return df[col].apply(self.parse_float)
+
+    def _apply_case_b(self, df: pd.DataFrame) -> pd.Series:
+        """Case B: Absolute Amount + Direction Column."""
+        amt_col = self.mapping.amount_col
+        dir_col = self.mapping.polarity.direction_col
+        
+        # Pre-parse absolute amounts
+        abs_amounts = df[amt_col].apply(lambda x: abs(self.parse_float(x)))
+        
+        outgoing_kw = self.mapping.polarity.outgoing_value.lower()
+        incoming_kw = self.mapping.polarity.incoming_value.lower()
+        
+        def calculate(row):
+            idx = row.name
+            val = abs_amounts.loc[idx]
+            d_val = str(row[dir_col]).lower().strip()
+            
+            if outgoing_kw in d_val:
+                return -val
+            elif incoming_kw in d_val:
+                return val
+            return val # Default or unmatched
+            
+        return df.apply(calculate, axis=1)
+
+    def _apply_case_c(self, df: pd.DataFrame) -> pd.Series:
+        """Case C: Separate Credit and Debit columns."""
+        credit_col = self.mapping.polarity.credit_col
+        debit_col = self.mapping.polarity.debit_col
+        
+        credit_vals = df[credit_col].apply(self.parse_float).abs()
+        debit_vals = df[debit_col].apply(self.parse_float).abs()
+        
+        return credit_vals - debit_vals
+
+    def apply(self, df: pd.DataFrame) -> pd.DataFrame:
+        logger.info(f"Stage 4: Rules Engine - Normalizing Data using {self.strategy.__class__.__name__}...")
+        
+        # 1. Date Parsing
+        # Clean '.0' suffix from float-like dates (20240831.0)
         date_str = df[self.mapping.date_col].astype(str).str.replace(r'\.0$', '', regex=True)
         date_series = pd.to_datetime(date_str, errors='coerce')
         
-        # Polarity Handling & Amount Parsing
-        p = self.mapping.polarity
+        # 2. Polarity & Parsing
+        ptype = self.mapping.polarity.type
         signed_amount = pd.Series(0.0, index=df.index)
         
-        if p.type == "signed":
-            # Case A
-            if not self.mapping.amount_col:
-                raise ValueError("Amount column is required for Signed polarity case")
-            raw_col = self.mapping.amount_col
-            signed_amount = df[raw_col].apply(lambda x: self.parse_float(x, self.mapping.decimal_separator))
+        if ptype == "signed":
+            signed_amount = self._apply_case_a(df)
+        elif ptype == "direction":
+            signed_amount = self._apply_case_b(df)
+        elif ptype == "credit_debit":
+            signed_amount = self._apply_case_c(df)
             
-        elif p.type == "direction":
-            # Case B
-            if not self.mapping.amount_col:
-                 raise ValueError("Amount column is required for Direction polarity case")
-                 
-            # Calculate absolute amount first
-            raw_col = self.mapping.amount_col
-            # Parse and take abs (just in case raw data has inconsistent signs)
-            abs_amount = df[raw_col].apply(lambda x: abs(self.parse_float(x, self.mapping.decimal_separator)))
-            
-            direction_col = p.direction_col
-            
-            def calculate_signed(row):
-                # Use row.name for index alignment or row directly
-                idx = row.name
-                amount = abs_amount.loc[idx]
-                
-                d_val = str(row[direction_col]).strip()
-                
-                # Check for exact or substring matches (case sensitive or insensitive? prompt gave capitalized)
-                # Let's be slightly loose
-                if p.outgoing_value in d_val:
-                    return -amount
-                elif p.incoming_value in d_val:
-                    return amount
-                else:
-                    # Default handling: Log warning? return amount?
-                    return amount
-            
-            signed_amount = df.apply(calculate_signed, axis=1)
-
-        elif p.type == "credit_debit":
-            # Case C
-            # Parse both columns
-            credit_vals = df[p.credit_col].apply(lambda x: self.parse_float(x, self.mapping.decimal_separator))
-            debit_vals = df[p.debit_col].apply(lambda x: self.parse_float(x, self.mapping.decimal_separator))
-            
-            # Income (Credit) is positive, Expense (Debit) is negative
-            # We assume values in columns are absolute magnitudes
-            signed_amount = credit_vals.abs() - debit_vals.abs()
-            
-        # Create Result DataFrame
+        # 3. Create Result DataFrame
         result = pd.DataFrame()
         
         # Deterministic ID Generation
         import hashlib
         def generate_id(row):
             # content string: date_str + amount_str + desc_str
-            d_str = str(row[self.mapping.date_col])
-            a_str = str(row[self.mapping.amount_col]) if self.mapping.amount_col else ""
-            desc_str = str(row[self.mapping.desc_col])
-            
+            d_str = str(row['date'])
+            a_str = str(row['amount'])
+            desc_str = str(row['description']) # Using the mapped description
             content = f"{d_str}{a_str}{desc_str}".encode('utf-8')
             return str(uuid.UUID(hashlib.sha256(content).hexdigest()[:32]))
 
-        result['transaction_id'] = df.apply(generate_id, axis=1)
+        # Temporary assign for ID generation
+        temp_df = pd.DataFrame()
+        temp_df['date'] = date_series
+        temp_df['amount'] = signed_amount
+        temp_df['description'] = df[self.mapping.desc_col].astype(str).str.strip()
+        
+        result['transaction_id'] = temp_df.apply(generate_id, axis=1)
         result['date'] = date_series
         result['account'] = "Assets:Bank:Unknown" 
         result['amount'] = signed_amount
         result['currency'] = "EUR" 
         result['price'] = pd.Series([None] * len(df), dtype="float64")
+        result['description'] = temp_df['description']
         
-        # Create Meta (JSON dump of original row)
+        # Meta JSON
         result['meta'] = df.apply(lambda row: row.to_json(), axis=1)
-
-        # Retain Normalized Description for Categorizer (Fast Path)
-        # Using the mapped description column instead of re-parsing JSON later
-        result['description'] = df[self.mapping.desc_col].astype(str)
         
         return result

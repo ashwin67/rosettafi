@@ -20,11 +20,14 @@ This project implements a financial data ingestion engine designed to handle mes
     2. **Heuristic Fallback**: If the LLM fails, a robust standalone heuristic (`_heuristic_map_columns`) determines the mapping based on keyword density and localized patterns.
 - **Persistence**: Caches mapping decisions in `bank_configs.json` based on header hashes.
 
-### 3. Stage 4: The Logic (Rules Engine)
+### 3. Stage 4: The Logic (Locale-Aware Rules Engine)
 *Located in `rosetta/rules.py`*
-- Accepts the `ColumnMapping` configuration.
-- Performs **Locale-Aware Parsing** to correctly parse numbers like `1.000,00` (European) or `1,000.00` (US).
-- Applies **Polarity Logic** to ensure expenses are negative and income is positive, handling multiple bank styles (Direction columns, Credit/Debit splits).
+- **Strategy Pattern**: Uses `USParsingStrategy` (Dot decimal) or `EUParsingStrategy` (Comma decimal) based on the configuration.
+- **Polarity Handler**: Applies localized logic to determine transaction direction:
+    - *Signed*: Standard negative/positive amounts.
+    - *Direction Column*: Uses keywords (e.g. "Debit", "Af") in a separate column.
+    - *Split Columns*: Calculates `Credit - Debit`.
+- **Normalization**: Cleans dirty inputs (e.g. "€ 1.200,50"), handles unicode characters, and standardizes dates.
 
 ### 4. Stage 5: The Categorizer (Hybrid Engine)
 *Located in `rosetta/categorizer.py`*

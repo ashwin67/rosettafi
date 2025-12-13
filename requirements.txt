@@ -9,3 +9,5 @@ numpy
 nest_asyncio
 xlrd
 openpyxl
+pytest
+pytest-cov

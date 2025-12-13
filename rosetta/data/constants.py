@@ -73,3 +73,21 @@ KEYWORDS_DIRECTION = ['cd', 'c/d', 'direction', 'type', 'af_bij']
 
 # Heuristics for Logic
 DECIMAL_COMMA_INDICATORS = ['bedrag', 'valuta', 'buchung', 'eur', 'transactiebedrag', 'betrag', 'importe']
+
+# ==============================================================================
+# STAGE 4: RULES ENGINE CONFIGURATION
+# ==============================================================================
+# Regex pattern to strip non-numeric characters from amount strings (keeps digits, ., ,, -)
+# actually we want to strip everything EXCEPT digits, separators and negative signs.
+# But often easier to target what to STRIP.
+# Common symbols: $, €, £, Spaces, Letters (EUR, USD).
+CLEAN_CURRENCY_REGEX = r'[^\d.,\-]'
+
+# Map of unicode characters to standard ASCII for normalization
+UNICODE_REPLACEMENTS = {
+    "−": "-",  # Unicode minus
+    "\u2013": "-", # En dash
+    "\u2014": "-", # Em dash
+    "\u00A0": " ", # Non-breaking space (often used as thousand sep)
+    "\u202F": " "  # Narrow no-break space
+}
