@@ -61,9 +61,20 @@ if __name__ == "__main__":
     print(normalized_df[['date', 'amount', 'transaction_id']].head())
     
     # Stage 5: Categorizer (Classify Transactions)
-    from rosetta.categorizer import Categorizer
-    categorizer = Categorizer()
-    categorized_df = categorizer.run_categorization(normalized_df, mapping)
+    from rosetta.categorizer import HybridCategorizer
+    categorizer = HybridCategorizer()
+    
+    # Categorize row by row (fast/slow hybrid)
+    logger.info("Category Hybrid Engine started...")
+    # Apply categorize function to description column
+    # Using 'description' column which was normalized by Rules Engine
+    normalized_df['account'] = normalized_df['description'].apply(categorizer.categorize)
+    
+    # We need to map this 'account' column to something useful for the Ledger? 
+    # For now, let's assume the categorizer output IS the account name (e.g. "Groceries")
+    # In a real double entry system, this might act as the 'Expense' account.
+    categorized_df = normalized_df.copy()
+    
     print("\n--- Stage 5 Output (Categorized DataFrame) ---")
     print(categorized_df[['date', 'amount', 'account']].head())
     

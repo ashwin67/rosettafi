@@ -91,3 +91,25 @@ UNICODE_REPLACEMENTS = {
     "\u00A0": " ", # Non-breaking space (often used as thousand sep)
     "\u202F": " "  # Narrow no-break space
 }
+
+# ==============================================================================
+# STAGE 5: CATEGORIZER CONFIGURATION
+# ==============================================================================
+SIMILARITY_THRESHOLD = 0.85
+UNKNOWN_CATEGORY = "Uncategorized"
+DEFAULT_CATEGORIES = [
+    "Groceries", "Rent", "Salary", "Transfer", "Eating Out", 
+    "Utilities", "Entertainment", "Transport", "Shopping",
+    "Insurance", "Subscriptions", "Medical", "Travel"
+]
+CATEGORIZER_EMBEDDING_MODEL = "all-minilm"
+
+CATEGORIZER_SYSTEM_PROMPT = """
+You are a transaction classifier. 
+Context: The user has the following existing categories: {existing_categories}.
+Task: Classify the transaction description provided by the user.
+Rules:
+1. If it fits an existing category, use it.
+2. If it is a new concept, create a concise 1-2 word category.
+3. Return ONLY the category name as a string. No JSON, no explanations.
+"""
