@@ -68,7 +68,7 @@ if __name__ == "__main__":
     logger.info("Category Hybrid Engine started...")
     # Apply categorize function to description column
     # Using 'description' column which was normalized by Rules Engine
-    normalized_df['account'] = normalized_df['description'].apply(categorizer.categorize)
+    normalized_df['account'] = normalized_df['description'].apply(categorizer.run)
     
     # We need to map this 'account' column to something useful for the Ledger? 
     # For now, let's assume the categorizer output IS the account name (e.g. "Groceries")

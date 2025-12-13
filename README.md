@@ -29,16 +29,14 @@ This project implements a financial data ingestion engine designed to handle mes
     - *Split Columns*: Calculates `Credit - Debit`.
 - **Normalization**: Cleans dirty inputs (e.g. "€ 1.200,50"), handles unicode characters, and standardizes dates.
 
-### 4. Stage 5: The Categorizer (Hybrid RAG Engine)
-*Located in `rosetta/categorizer.py`*
-- **Fast Path (Vector Search)**:
-    - Convert transaction description to an embedding using `all-minilm`.
-    - Compare with existing categories in local memory (`category_memory.json`).
-    - If similarity > 0.85, auto-categorize.
-- **Slow Path (LLM)**:
-    - If no vector match, ask `llama3.2` to classify or invent a new category.
-    - **Self-Healing**: Newly created categories are embedded and saved to memory for future Fast Path matching.
-- **Resilience**: Backs up memory on corruption; defaults to "Uncategorized" if LLM is down.
+### 4. Stage 5: The Categorizer (Modular Engine)
+*Located in `rosetta/logic/categorization/`*
+A robust 4-layer pipeline to handle noisy data ("Garbage In") and prevent hallucinations.
+1. **Cleaner Layer**: Regex-based noise removal (strips SEPA, TRTP, IDs).
+2. **Rules Layer**: Deterministic dictionary lookup for known merchants (O(1)).
+3. **Matcher Layer**: Vector RAG engine using `all-minilm` and `scipy` cosine similarity.
+4. **Agent Layer**: LLM (`llama3.2`) with Chain-of-Thought reasoning for novel concepts.
+*Self-Healing*: Decisions from the Agent are fed back into the Matcher's memory.
 
 ### 5. Stage 6: The Ledger (Split Expansion)
 *Located in `rosetta/ledger.py`*

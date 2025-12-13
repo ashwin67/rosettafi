@@ -97,19 +97,76 @@ UNICODE_REPLACEMENTS = {
 # ==============================================================================
 SIMILARITY_THRESHOLD = 0.85
 UNKNOWN_CATEGORY = "Uncategorized"
-DEFAULT_CATEGORIES = [
-    "Groceries", "Rent", "Salary", "Transfer", "Eating Out", 
-    "Utilities", "Entertainment", "Transport", "Shopping",
-    "Insurance", "Subscriptions", "Medical", "Travel"
-]
 CATEGORIZER_EMBEDDING_MODEL = "all-minilm"
 
+# Expanded Default Categories to prevent Bucket Errors
+DEFAULT_CATEGORIES = [
+    "Expenses:Groceries", 
+    "Expenses:Rent", 
+    "Expenses:Salary", 
+    "Expenses:Transfer", 
+    "Expenses:Eating Out", 
+    "Expenses:Utilities", 
+    "Expenses:Entertainment", 
+    "Expenses:Transport", 
+    "Expenses:Shopping:General",
+    "Expenses:Shopping:Online",
+    "Expenses:Housing:Mortgage",
+    "Expenses:Services:Education",
+    "Expenses:Insurance", 
+    "Expenses:Subscriptions", 
+    "Expenses:Medical", 
+    "Expenses:Travel"
+]
+
+# Regex Patterns for the Cleaner Layer
+# Strips common banking noise to isolate the Merchant Name
+CLEANER_REGEX_PATTERNS = [
+    r"/NAME/", 
+    r"/TRTP/", 
+    r"/SEPA/", 
+    r"SEPA Incasso", 
+    r"Incasso",
+    r"Datum:.*", 
+    r"Omschrijving:\s*", # Only strip the label, keep the content
+    r"Kenmerk:.*",       # Strip Reference and everything after
+    r"IBAN:.*",          # Strip IBAN and everything after
+    r"BIC:.*",           # Strip BIC and everything after
+    r"[0-9]{14,}", # Long numeric strings (IDs)
+    r"\s{2,}"     # Multiple spaces
+]
+
+# Hard-coded Dictionary Rules for Deterministic Matches
+HARD_CODED_RULES = {
+    "hypotheek": "Expenses:Housing:Mortgage",
+    "albert heijn": "Expenses:Groceries",
+    "jumbo": "Expenses:Groceries",
+    "netflix": "Expenses:Subscriptions",
+    "ns groep": "Expenses:Transport",
+    "shell": "Expenses:Transport",
+    "bol.com": "Expenses:Shopping:Online",
+    "amazon": "Expenses:Shopping:Online",
+    "ziggo": "Expenses:Utilities",
+    "kpn": "Expenses:Utilities"
+}
+
+# System Prompt for the Agent Layer (Chain of Thought)
 CATEGORIZER_SYSTEM_PROMPT = """
-You are a transaction classifier. 
-Context: The user has the following existing categories: {existing_categories}.
-Task: Classify the transaction description provided by the user.
-Rules:
-1. If it fits an existing category, use it.
-2. If it is a new concept, create a concise 1-2 word category.
-3. Return ONLY the category name as a string. No JSON, no explanations.
+You are a financial transaction classifier.
+Your goal is to categorize a transaction based on the provided Merchant Name or Description.
+
+Context: 
+The user uses the following categories: {existing_categories}.
+
+Task: 
+Analyze the input description.
+1. Identify the industry or purpose of the merchant.
+2. Select the BEST fit from the existing categories.
+3. If it is a completely new concept, suggest a new category in the format 'Expenses:Category:Subcategory'.
+4. If you are unsure, use 'Uncategorized'.
+
+Output:
+Return a JSON object with:
+- "reasoning": A brief explanation of your thought process.
+- "category": The selected or created category.
 """
