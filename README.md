@@ -20,7 +20,7 @@ This project implements a financial data ingestion engine designed to handle mes
     2. **Heuristic Fallback**: If the LLM fails, a robust standalone heuristic (`_heuristic_map_columns`) determines the mapping based on keyword density and localized patterns.
 - **Persistence**: Caches mapping decisions in `bank_configs.json` based on header hashes.
 
-### 3. Stage 4: The Logic (Locale-Aware Rules Engine)
+### 3. Stage 3: The Rules Engine (Locale-Aware Logic)
 *Located in `rosetta/rules.py`*
 - **Strategy Pattern**: Uses `USParsingStrategy` (Dot decimal) or `EUParsingStrategy` (Comma decimal) based on the configuration.
 - **Polarity Handler**: Applies localized logic to determine transaction direction:
@@ -29,7 +29,7 @@ This project implements a financial data ingestion engine designed to handle mes
     - *Split Columns*: Calculates `Credit - Debit`.
 - **Normalization**: Cleans dirty inputs (e.g. "€ 1.200,50"), handles unicode characters, and standardizes dates.
 
-### 4. Stage 5: The Categorizer (Modular Engine)
+### 4. Stage 4: The Categorizer (Modular Engine)
 *Located in `rosetta/logic/categorization/`*
 A robust 4-layer pipeline to handle noisy data ("Garbage In") and prevent hallucinations.
 1. **Cleaner Layer**: Regex-based noise removal (strips SEPA, TRTP, IDs).
@@ -38,7 +38,7 @@ A robust 4-layer pipeline to handle noisy data ("Garbage In") and prevent halluc
 4. **Agent Layer**: LLM (`llama3.2`) with Chain-of-Thought reasoning for novel concepts.
 *Self-Healing*: Decisions from the Agent are fed back into the Matcher's memory.
 
-### 5. Stage 6: The Ledger (Double-Entry Engine)
+### 5. Stage 5: The Ledger (Double-Entry Engine)
 *Located in `rosetta/logic/ledger.py`*
 - **Standard**: Converts single-row expenses into 2-row Double-Entry splits (Asset Credit / Expense Debit).
 - **Hybrid Investments**:
@@ -46,7 +46,7 @@ A robust 4-layer pipeline to handle noisy data ("Garbage In") and prevent halluc
     - **Slow Path**: LLM extraction for complex notes ("Purchase of 50 units...").
 - **Configurable**: Accounts and Currency defined in `rosetta/data/constants.py`.
 
-### 6. Stage 3: The Validator (Pandera)
+### 6. Stage 6: The Validator (Pandera)
 *Located in `rosetta/validator.py`*
 - Enforces strict type safety using `pandera`.
 - Ensures dates are valid datetimes, amounts are floats, and required fields are present.
@@ -65,21 +65,29 @@ A robust 4-layer pipeline to handle noisy data ("Garbage In") and prevent halluc
 ```
 rosettafi/
 ├── main.py             # Entry point
-├── requirements.txt    # Minimal dependencies (numpy, scipy, ollama, instructor)
+├── requirements.txt    # Minimal dependencies
 ├── rosetta/            # Core Package
 │   ├── models.py       # Pydantic Schemas
-│   ├── sniffer.py      # Stage 1 (Facade)
-│   ├── data/
-│   │   └── sniffer_constants.py
-│   ├── logic/
+│   ├── workspace.py    # Workspace Singleton
+│   ├── data/           # Configuration
+│   │   └── constants.py
+│   ├── logic/          # Core Business Logic
+│   │   ├── ledger.py   # Ledger Engine
+│   │   ├── categorization/
+│   │   │   ├── engine.py
+│   │   │   ├── agent.py
+│   │   │   ├── matcher.py
+│   │   │   ├── rules.py
+│   │   │   └── cleaner.py
+│   │   ├── mapper_logic.py
 │   │   └── sniffer_logic.py
-│   ├── mapper.py       # Stage 2
-│   ├── rules.py        # Stage 4 (Logic)
-│   ├── categorizer.py  # Stage 5 (Hybrid Classifer)
-│   ├── ledger.py       # Stage 6 (Splits)
-│   ├── validator.py    # Stage 3
-│   ├── workspace.py    # Workspace & Cache Management
-│   └── config.py       # Configuration
+│   ├── sniffer.py      # Facades / Wrappers
+│   ├── mapper.py       
+│   ├── rules.py        
+│   ├── categorizer.py  
+│   ├── ledger.py       
+│   ├── validator.py    
+│   └── config.py       
 ```
 
 ## Universal Data Model
