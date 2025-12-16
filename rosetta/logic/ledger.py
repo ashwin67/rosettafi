@@ -6,7 +6,7 @@ import ollama
 from openai import OpenAI
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
-from rosetta.config import get_logger
+from rosetta.utils import get_logger
 from rosetta.data.constants import (
     DEFAULT_ASSET_ACCOUNT, 
     DEFAULT_CURRENCY, 

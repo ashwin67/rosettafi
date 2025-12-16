@@ -2,7 +2,7 @@ from rosetta.sniffer import sniff_header_row
 from rosetta.mapper import get_column_mapping
 from rosetta.rules import RulesEngine
 from rosetta.validator import validate_data
-from rosetta.config import get_logger
+from rosetta.utils import get_logger
 
 logger = get_logger(__name__)
 
@@ -84,7 +84,7 @@ if __name__ == "__main__":
     print(categorized_df[['date', 'amount', 'account']].head())
     
     # Stage 6: Ledger (Split Generation)
-    from rosetta.ledger import LedgerEngine
+    from rosetta.logic.ledger import LedgerEngine
     ledger_engine = LedgerEngine()
     ledger_df = ledger_engine.generate_splits(categorized_df)
     

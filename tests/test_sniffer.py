@@ -2,8 +2,7 @@
 import pytest
 import io
 import pandas as pd
-from rosetta.sniffer import sniff_header_row
-from rosetta.logic.sniffer_logic import calculate_data_density, detect_header_by_density
+from rosetta.sniffer import sniff_header_row, calculate_data_density, detect_header_by_density
 
 def test_data_density_calculation():
     # Helper test to verify density logic

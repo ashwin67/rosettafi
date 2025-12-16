@@ -5,7 +5,7 @@ import os
 from rosetta.logic.categorization.batch import BatchCategorizer
 from rosetta.logic.categorization.segmentation import LLMSegmenter
 from rosetta.data.constants import UNKNOWN_CATEGORY, ENTITY_SEGMENTATION_PROMPT, BATCH_CATEGORIZATION_PROMPT
-from rosetta.config import get_logger
+from rosetta.utils import get_logger
 import pandas as pd
 import os
 import instructor

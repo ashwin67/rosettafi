@@ -1,8 +1,7 @@
 import pytest
 import pandas as pd
 from unittest.mock import patch, MagicMock
-from rosetta.mapper import get_column_mapping
-from rosetta.logic.mapper_logic import heuristic_map_columns
+from rosetta.mapper import get_column_mapping, heuristic_map_columns
 from rosetta.models import ColumnMapping, DecimalSeparator
 
 # Helper to mock LLM failure so we hit fallback

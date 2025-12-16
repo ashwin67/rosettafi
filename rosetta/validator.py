@@ -2,7 +2,7 @@ import pandas as pd
 import os
 import pandera.pandas as pa
 from pandera.errors import SchemaErrors
-from .config import get_logger
+from rosetta.utils import get_logger
 from .workspace import Workspace
 
 logger = get_logger(__name__)

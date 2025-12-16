@@ -5,7 +5,7 @@ import re
 from abc import ABC, abstractmethod
 from typing import Union
 from .models import ColumnMapping, DecimalSeparator
-from .config import get_logger
+from rosetta.utils import get_logger
 from .data.constants import CLEAN_CURRENCY_REGEX, UNICODE_REPLACEMENTS
 
 logger = get_logger(__name__)
