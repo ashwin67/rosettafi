@@ -153,54 +153,49 @@ DEFAULT_CATEGORIES = [
     "Expenses:Travel"
 ]
 
-# Regex Patterns for the Cleaner Layer
-# Strips common banking noise to isolate the Merchant Name
-CLEANER_REGEX_PATTERNS = [
-    r"/NAME/", 
-    r"/TRTP/", 
-    r"/SEPA/", 
-    r"SEPA Incasso", 
-    r"Incasso",
-    r"Datum:.*", 
-    r"Omschrijving:\s*", # Only strip the label, keep the content
-    r"Kenmerk:.*",       # Strip Reference and everything after
-    r"IBAN:.*",          # Strip IBAN and everything after
-    r"BIC:.*",           # Strip BIC and everything after
-    r"[0-9]{14,}", # Long numeric strings (IDs)
-    r"\s{2,}"     # Multiple spaces
-]
 
-# Hard-coded Dictionary Rules for Deterministic Matches
-HARD_CODED_RULES = {
-    "hypotheek": "Expenses:Housing:Mortgage",
-    "albert heijn": "Expenses:Groceries",
-    "jumbo": "Expenses:Groceries",
-    "netflix": "Expenses:Subscriptions",
-    "ns groep": "Expenses:Transport",
-    "shell": "Expenses:Transport",
-    "bol.com": "Expenses:Shopping:Online",
-    "amazon": "Expenses:Shopping:Online",
-    "ziggo": "Expenses:Utilities",
-    "kpn": "Expenses:Utilities"
+ENTITY_SEGMENTATION_PROMPT = """
+You are a strict extraction engine. You are given a batch of raw banking transaction strings, each with an ID.
+Your job is to split each string into two lists of substrings: "keywords" (technical data) and "descriptions" (human readable text).
+
+Structure:
+{
+  "items": [
+    { "id": <int>, "keywords": [...], "descriptions": [...] },
+    ...
+  ]
 }
 
-# System Prompt for the Agent Layer (Chain of Thought)
-CATEGORIZER_SYSTEM_PROMPT = """
-You are a financial transaction classifier.
-Your goal is to categorize a transaction based on the provided Merchant Name or Description.
+CRITICAL RULES:
+1. NO HALLUCINATIONS: Your output must consist ONLY of exact substrings found in the input text. Do not correct typos. Do not add words.
+2. NO SKIPPING: Every part of the string must be assigned to one of the two lists.
+3. PRESERVE IDs: You MUST return the exact ID for each input item.
 
-Context: 
-The user uses the following categories: {existing_categories}.
+CLASSIFICATION LOGIC:
+1. "keywords":
+   - Any string containing numbers (e.g., "PAS142", "20.11.25", "13.4").
+   - Any technical tags or routing codes (e.g., "/TRTP/", "CSID", "IBAN", "BIC").
+   - Codes that look like IDs (e.g., "NL27INGB...", "CR123").
+   - Single letters or noise (e.g., "Yy").
 
-Task: 
-Analyze the input description.
-1. Identify the industry or purpose of the merchant.
-2. Select the BEST fit from the existing categories.
-3. If it is a completely new concept, suggest a new category in the format 'Expenses:Category:Subcategory'.
-4. If you are unsure, use 'Uncategorized'.
+2. "descriptions":
+   - Merchant names (e.g., "Bol.com", "Philips", "Bakkerij Bart").
+   - City names (e.g., "Kerkdriel", "Amsterdam").
+   - Remittance text (readable sentences).
+   - EXCEPTION: If a Merchant Name contains numbers (e.g. "Key4Music"), put it here.
 
-Output:
-Return a JSON object with:
-- "reasoning": A brief explanation of your thought process.
-- "category": The selected or created category.
+Examples:
+Input: [{"id": 1, "text": "BEA, Google Pay Philips MedicalSystems,PAS132 NR:L32V7F, 20.11.25"}]
+Output: { "items": [{ "id": 1, "keywords": ["BEA", "PAS132", "NR:L32V7F", "20.11.25"], "descriptions": ["Google Pay", "Philips MedicalSystems"] }] }
+
+Input: [{"id": 2, "text": "/TRTP/SEPA Incasso/CSID/NL98ZZZ/NAME/Key4Music VOF/EREF/20201127"}]
+Output: { "items": [{ "id": 2, "keywords": ["/TRTP/", "/CSID/", "NL98ZZZ", "/EREF/", "20201127"], "descriptions": ["SEPA Incasso", "Key4Music VOF"] }] }
+"""
+
+BATCH_CATEGORIZATION_PROMPT = """
+You are a financial classifier.
+I will give you a list of merchant names.
+Categorize each one into a high-level financial category (e.g., 'Groceries', 'Transport', 'Utilities', 'Salary', 'Investment').
+Use the context of the entire list to improve accuracy (e.g., if you see multiple gas stations, 'Shell' is likely a gas station).
+Return a JSON dictionary mapping the Merchant Name to the Category.
 """

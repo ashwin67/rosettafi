@@ -61,14 +61,19 @@ if __name__ == "__main__":
     print(normalized_df[['date', 'amount', 'transaction_id']].head())
     
     # Stage 5: Categorizer (Classify Transactions)
-    from rosetta.categorizer import HybridCategorizer
-    categorizer = HybridCategorizer()
+    # Stage 5: Categorizer (Classify Transactions)
+    # Using the new 3-Pass Inductive Categorization Engine
+    from rosetta.logic.categorization.engine import CategorizationEngine
+    categorizer = CategorizationEngine()
     
-    # Categorize row by row (fast/slow hybrid)
-    logger.info("Category Hybrid Engine started...")
-    # Apply categorize function to description column
-    # Using 'description' column which was normalized by Rules Engine
-    normalized_df['account'] = normalized_df['description'].apply(categorizer.run)
+    logger.info("Inductive Categorization Engine started...")
+    
+    # Run the engine on the dataframe (Pass 1, 2, 3 happen inside)
+    # The engine expects the 'description' column
+    normalized_df = categorizer.run(normalized_df, description_col="description")
+    
+    # The engine adds a 'Category' column. We map this to 'account' for legacy/ledger compatibility.
+    normalized_df['account'] = normalized_df['Category']
     
     # We need to map this 'account' column to something useful for the Ledger? 
     # For now, let's assume the categorizer output IS the account name (e.g. "Groceries")
