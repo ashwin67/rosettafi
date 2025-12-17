@@ -43,8 +43,12 @@ class Workspace:
         return str(self.configs_dir / "bank_configs.json")
 
     def get_memory_path(self) -> str:
-        """Returns the absolute path for category_memory.json."""
+        """Returns the absolute path for category_memory.json (Legacy)."""
         return str(self.memory_dir / "category_memory.json")
+    
+    def get_phonebook_path(self) -> str:
+        """Returns the absolute path for merchants.json (The Entity Phonebook)."""
+        return str(self.memory_dir / "merchants.json")
 
     def get_quarantine_path(self) -> str:
         """Returns the absolute path for the quarantine directory."""

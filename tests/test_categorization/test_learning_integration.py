@@ -1,10 +1,11 @@
 import pytest
 import pandas as pd
 import os
+import time
 import instructor
 from openai import OpenAI
 from rosetta.logic.categorization.segmentation import LLMSegmenter
-from rosetta.data.constants import ENTITY_SEGMENTATION_PROMPT
+from rosetta.data.constants import TOKENIZATION_PROMPT
 
 # Skip if no OLLAMA available - rudimentary check or just let it fail if user wants to run it.
 # We'll use a mark for integration.
@@ -42,25 +43,26 @@ def test_real_llm_pattern_learning():
     
     # The Complex Case
     complex_desc = "/TRTP/iDEAL/IBAN/NL27INGB0000026500/BIC/INGBNL2A/NAME/bol.com b.v./REMI/4129973829 0051100576503291 bol.com 41-29-97-38-29 bol.com/EREF/01-09-2024 20:57 0051100576503291"
-    
-    print(f"\n[INTEGRATION] Asking LLM to segment: {complex_desc[:50]}...")
-    
-    # Batch of 1
-    results = segmenter.segment_batch([complex_desc], ENTITY_SEGMENTATION_PROMPT)
+    # Run
+    if not segmenter.client:
+        pytest.skip("No LLM client available (OLLAMA_BASE_URL not reachable)")
+        
+    start = time.time()
+    start = time.time()
+    # Pass 'complex_desc' in a list
+    results = segmenter.tokenize_batch([complex_desc], TOKENIZATION_PROMPT)
     
     print(f"\n[INTEGRATION] LLM Returned: {results}")
     
     assert len(results) == 1
-    descriptions = results[0].get("descriptions", [])
-    keywords = results[0].get("keywords", [])
+    parts = results[0]
     
-    # We expect 'bol.com b.v.' or similar in descriptions
-    # And technical tags in keywords
-    extracted_text = " ".join(descriptions)
+    # We expect 'bol.com' or 'b.v.' or similar in parts
+    # And technical tags in parts
+    keywords_str = " ".join(parts).lower()
     
-    print(f"[INTEGRATION] Extracted Description: '{extracted_text}'")
+    print(f"[INTEGRATION] Extracted Parts: '{keywords_str}'")
     
-    assert "bol.com" in extracted_text.lower()
-    # Relaxed assertion: Check if key tokens are present even if slashes are stripped
-    keywords_str = str(keywords)
-    assert "TRTP" in keywords_str or "iDEAL" in keywords_str or "IDEAL" in keywords_str
+    assert "bol.com" in keywords_str
+    # Check if key tokens are present
+    assert "trtp" in keywords_str or "ideal" in keywords_str

@@ -29,14 +29,14 @@ This project implements a financial data ingestion engine designed to handle mes
     - *Split Columns*: Calculates `Credit - Debit`.
 - **Normalization**: Cleans dirty inputs (e.g. "€ 1.200,50"), handles unicode characters, and standardizes dates.
 
-### 4. Stage 4: The Categorizer (Modular Engine)
+### 4. Stage 4: The Categorizer (Phonebook Strategy)
 *Located in `rosetta/logic/categorization/`*
-A robust 4-layer pipeline to handle noisy data ("Garbage In") and prevent hallucinations.
-1. **Cleaner Layer**: Regex-based noise removal (strips SEPA, TRTP, IDs).
-2. **Rules Layer**: Deterministic dictionary lookup for known merchants (O(1)).
-3. **Matcher Layer**: Vector RAG engine using `all-minilm` and `scipy` cosine similarity.
-4. **Agent Layer**: LLM (`llama3.2`) with Chain-of-Thought reasoning for novel concepts.
-*Self-Healing*: Decisions from the Agent are fed back into the Matcher's memory.
+A "Phonebook" based approach that treats Merchants as first-class citizens.
+1. **Pass 1: Tokenization (The Shredder)**: Uses `qwen2.5:7b` to shred raw strings into tokens (Keywords vs Descriptions).
+2. **Pass 2: Resolution (The Phonebook)**:
+   - **Exact Match**: O(1) lookup of known aliases.
+   - **Fuzzy Suggestion**: If no exact match, finds the closest known entity (Threshold 0.6) to suggest to the user.
+3. **Pass 3: Categorization**: Deterministic mapping based on the Resolved Entity's default category + Context Rules.
 
 ### 5. Stage 5: The Ledger (Double-Entry Engine)
 *Located in `rosetta/logic/ledger.py`*
@@ -56,7 +56,7 @@ A robust 4-layer pipeline to handle noisy data ("Garbage In") and prevent halluc
 - Implements a Singleton `Workspace` class managing all file I/O paths.
 - Automatically ensures the existence of the `~/.rosetta_cache/` directory structure:
     - `configs/`: Stores `bank_configs.json`
-    - `memory/`: Stores `category_memory.json`
+    - `phonebook/`: Stores `merchants.json` (The Master Database)
     - `logs/`: Application logs
     - `quarantine/`: Invalid rows dumped here
     - `temp/`: Temporary processing files
@@ -74,20 +74,14 @@ rosettafi/
 │   ├── logic/          # Core Business Logic
 │   │   ├── ledger.py   # Ledger Engine
 │   │   ├── categorization/
-│   │   │   ├── engine.py
-│   │   │   ├── agent.py
-│   │   │   ├── matcher.py
-│   │   │   ├── rules.py
-│   │   │   └── cleaner.py
-│   │   ├── mapper_logic.py
-│   │   └── sniffer_logic.py
+│   │   │   ├── engine.py       # Pipeline Orchestrator
+│   │   │   ├── segmentation.py # LLM Tokenizer
+│   │   │   ├── resolver.py     # Fuzzy Matcher
+│   │   │   └── phonebook.py    # Persistence Layer
 │   ├── sniffer.py      # Facades / Wrappers
 │   ├── mapper.py       
 │   ├── rules.py        
-│   ├── categorizer.py  
-│   ├── ledger.py       
-│   ├── validator.py    
-│   └── config.py       
+│   └── validator.py    
 ```
 
 ## Universal Data Model
@@ -101,12 +95,10 @@ rosettafi/
 | `meta` | JSON | Original row data |
 
 ## Usage
-
 ### Prerequisites
-Ensure you have [Ollama](https://ollama.com) installed and running. You will need to pull the specific models used by this pipeline:
+Ensure you have [Ollama](https://ollama.com) installed and running.
 ```bash
-ollama pull llama3.2
-ollama pull all-minilm
+ollama pull qwen2.5:7b
 ```
 
 ### Running the Project
@@ -114,8 +106,19 @@ ollama pull all-minilm
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-python main.py
+python main.py [optional_file_path]
 ```
+
+### Interactive Entity Resolution
+If the system encounters unknown merchants, it will enter **Resolution Mode**:
+```text
+Entity: 'Unknown Bakery'
+Identify Entity [Enter for 'Best Bakery']: 
+ -> Linked to 'Best Bakery'
+```
+- **Hit Enter** to accept the suggestion.
+- **Type a Name** to create/link a new entity.
+- **Type 'skip'** to ignore.
 
 ## Future Work
 - **Golden Master Regression Testing**: Implement a verified `golden_master.csv` test suite to prevent 'Poisoned Cache' issues in the Categorizer and ensure logic stability across updates.

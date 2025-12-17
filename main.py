@@ -3,6 +3,7 @@ from rosetta.mapper import get_column_mapping
 from rosetta.rules import RulesEngine
 from rosetta.validator import validate_data
 from rosetta.utils import get_logger
+from rosetta.data.constants import UNKNOWN_CATEGORY
 
 logger = get_logger(__name__)
 
@@ -54,34 +55,93 @@ if __name__ == "__main__":
     print(mapping.model_dump_json(indent=2))
     
     # Stage 4: Rules Engine (Apply Logic)
-    # Note: Rules engine handles parsing and normalization before validation
     engine = RulesEngine(mapping)
     normalized_df = engine.apply(clean_df)
     print("\n--- Stage 4 Output (Normalized DataFrame) ---")
     print(normalized_df[['date', 'amount', 'transaction_id']].head())
     
-    # Stage 5: Categorizer (Classify Transactions)
-    # Stage 5: Categorizer (Classify Transactions)
-    # Using the new 3-Pass Inductive Categorization Engine
+    # Stage 5: Entity Resolution Engine
     from rosetta.logic.categorization.engine import CategorizationEngine
     categorizer = CategorizationEngine()
     
-    logger.info("Inductive Categorization Engine started...")
+    logger.info("Entity Resolution Engine started...")
     
-    # Run the engine on the dataframe (Pass 1, 2, 3 happen inside)
-    # The engine expects the 'description' column
+    # Run the engine on the dataframe
+    # This now adds 'Entity', 'Category', and 'merchant_clean' columns
     normalized_df = categorizer.run(normalized_df, description_col="description")
     
-    # The engine adds a 'Category' column. We map this to 'account' for legacy/ledger compatibility.
+    # For Ledger compatibility, map 'Category' to 'account'
     normalized_df['account'] = normalized_df['Category']
     
-    # We need to map this 'account' column to something useful for the Ledger? 
-    # For now, let's assume the categorizer output IS the account name (e.g. "Groceries")
-    # In a real double entry system, this might act as the 'Expense' account.
     categorized_df = normalized_df.copy()
     
-    print("\n--- Stage 5 Output (Categorized DataFrame) ---")
-    print(categorized_df[['date', 'amount', 'account']].head())
+    print("\n--- Stage 5 Output (Entity & Category) ---")
+    print(categorized_df[['date', 'amount', 'Entity', 'Category']].head())
+    
+    # Check for Unknowns
+    unknowns = categorizer.discover_entities(categorized_df)
+    if unknowns:
+        print(f"\n[!] Discovered {len(unknowns)} Unknown Entities.")
+        print("--- Entitiy Resolution Mode ---")
+        
+        try:
+            # Interactive Loop
+            for item in unknowns:
+                raw_name = item['raw']
+                suggestion = item['suggested_name']
+                confidence = item['confidence']
+                
+                print(f"\nEntity: '{raw_name}'")
+                
+                # Step 1: Identity
+                default_identity = suggestion if suggestion else raw_name
+                prompt_identity = f"Identify Entity [Enter for '{default_identity}']: "
+                identity_input = input(prompt_identity).strip()
+                
+                if identity_input.lower() == 'skip':
+                    continue
+                
+                final_name = identity_input if identity_input else default_identity
+                
+                # Step 2: Category
+                # In a real app, we might check if 'final_name' is already a known entity to auto-fetch category.
+                # For now, we ask for category unless it's a known suggestion we accepted.
+                
+                final_category = None
+                
+                # If we accepted a suggestion, we assume the user might be happy with existing category logic, 
+                # but technically register_entity needs a category if it's new.
+                # If we are just linking an alias to an existing entity (Suggestion accepted), 
+                # we don't strictly need to re-enter category, but we can allow override.
+                
+                is_suggestion_accepted = (not identity_input) and suggestion
+                
+                if is_suggestion_accepted:
+                    # User accepted suggestion. We can skip category prompt or offer override.
+                    # Let's keep it simple: Link alias.
+                    print(f" -> Linked to '{final_name}'")
+                    categorizer.register_entity(final_name, category=None, alias=raw_name)
+                    continue
+                else:
+                    # User entered a new name OR accepted raw_name as new entity.
+                    # We need a category.
+                    prompt_cat = f"Category [Enter for '{UNKNOWN_CATEGORY}']: "
+                    cat_input = input(prompt_cat).strip()
+                    final_category = cat_input if cat_input else UNKNOWN_CATEGORY
+                    
+                    categorizer.register_entity(final_name, final_category, alias=raw_name)
+                    print(f" -> Registered '{final_name}' ({final_category})")
+
+        except EOFError:
+            print("\n[!] Non-interactive mode detected. Skipping remaining entities.")
+
+
+        # Re-Run Categorization to apply new knowledge
+        print("\nRe-running categorization with updated Phonebook...")
+        normalized_df = categorizer.run(normalized_df, description_col="description")
+        
+        # Update categorized_df
+        categorized_df = normalized_df.copy()
     
     # Stage 6: Ledger (Split Generation)
     from rosetta.logic.ledger import LedgerEngine
@@ -92,7 +152,6 @@ if __name__ == "__main__":
     print(ledger_df[['date', 'account', 'amount', 'currency']].head(10))
     
     # Stage 3: Validator (Strict Type Checks)
-    # We validate the final ledger splits
     final_df = validate_data(ledger_df)
     print("\n--- Stage 3 Output (Validated & Standardized Ledger) ---")
     print(final_df.head(10))
