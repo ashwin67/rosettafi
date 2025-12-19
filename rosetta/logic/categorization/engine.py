@@ -35,73 +35,106 @@ class CategorizationEngine:
         self.phonebook = Phonebook()
         self.resolver = EntityResolver(self.phonebook)
 
-    def run(self, df: pd.DataFrame, description_col: str = "Description") -> pd.DataFrame:
-        logger.info(f"Starting Categorization Pipeline on {len(df)} rows...")
-        
-        if df.empty:
+    def _prepare_df(self, df: pd.DataFrame, description_col: str) -> pd.DataFrame:
+        """Initializes the necessary columns for categorization."""
+        if 'Entity' not in df.columns:
             df['Entity'] = None
+        if 'Category' not in df.columns:
             df['Category'] = UNKNOWN_CATEGORY
-            df['merchant_clean'] = None
-            return df
+        if 'merchant_clean' not in df.columns:
+            df['merchant_clean'] = df[description_col]
+        return df
 
-        # Initialize Output Columns
-        df['Entity'] = None # The Resolved Canonical Name
-        df['Category'] = UNKNOWN_CATEGORY
-        df['merchant_clean'] = df[description_col] # Raw Fallback
-
-        # Filter: Only process rows that aren't already categorized/resolved?
-        # For now, process all.
-
-        # --- PASS 1: TOKENIZATION & FILTERING ---
-        logger.info("Pass 1: Tokenizing and Cleaning...")
-        
-        # 1a. Batch Tokenize via LLM
+    def _tokenize_df(self, df: pd.DataFrame, description_col: str) -> pd.DataFrame:
+        """Runs the LLM tokenizer on the description column."""
+        logger.info(f"Pass 1: Tokenizing and Cleaning {len(df)} rows...")
         texts = df[description_col].fillna("").tolist()
         
-        # Chunking for LLM stability
         BATCH_SIZE = 5
         cleaned_names = []
-        
         for i in range(0, len(texts), BATCH_SIZE):
-            chunk_texts = texts[i:i+BATCH_SIZE]
-            # LLM Call
+            chunk_texts = texts[i:i + BATCH_SIZE]
             token_lists = self.segmenter.tokenize_batch(chunk_texts, TOKENIZATION_PROMPT)
-            
-            # Python Filter Call
             for tokens in token_lists:
                 clean = self._post_process_tokens(tokens)
-                # Reconstruct Name (e.g., "Albert Heijn")
                 reconstructed = " ".join(clean)
                 cleaned_names.append(reconstructed)
-
+        
         df['merchant_clean'] = cleaned_names
-        
-        # --- PASS 2: RESOLUTION & CATEGORIZATION ---
-        logger.info("Pass 2: Entity Resolution (Phonebook Lookup)...")
-        
+        return df
+
+    def _resolve_df(self, df: pd.DataFrame, description_col: str) -> pd.DataFrame:
+        """Runs the entity resolver on the tokenized dataframe."""
+        logger.info(f"Pass 2: Entity Resolution on {len(df)} rows...")
+
         def resolve_row(row):
+            # Only resolve if not already resolved
+            if pd.notna(row.get('Entity')) and row.get('Category') != UNKNOWN_CATEGORY:
+                return pd.Series([row['Entity'], row['Category']])
+
             candidate = row['merchant_clean']
             full_desc = row[description_col]
             
-            # Try Resolve
             entity = self.resolver.resolve(candidate)
+            if not entity:
+                entity = self.resolver.resolve(full_desc)
             
             if entity:
-                # Found in Phonebook!
                 category = self.resolver.determine_category(entity, full_desc)
                 return pd.Series([entity.canonical_name, category])
             else:
-                # Unknown Entity
                 return pd.Series([None, UNKNOWN_CATEGORY])
 
-        # Apply Resolution
         df[['Entity', 'Category']] = df.apply(resolve_row, axis=1)
-        
-        # Metrics
-        resolved_count = df['Entity'].notna().sum()
-        logger.info(f"Resolved {resolved_count}/{len(df)} transactions via Phonebook.")
-
         return df
+
+    def run(self, df: pd.DataFrame, description_col: str = "Description") -> pd.DataFrame:
+        """
+        Full, non-interactive categorization run.
+        """
+        if df.empty:
+            return self._prepare_df(df, description_col)
+
+        df = self._prepare_df(df, description_col)
+        df = self._tokenize_df(df, description_col)
+        df = self._resolve_df(df, description_col)
+        
+        resolved_count = df['Entity'].notna().sum()
+        logger.info(f"Run complete. Resolved {resolved_count}/{len(df)} transactions.")
+        return df
+
+    def run_interactive(self, df: pd.DataFrame, description_col: str, batch_size: int = 100):
+        """
+        Interactive, generator-based categorization. Processes the DataFrame in
+        batches and yields newly discovered unknown entities for user feedback.
+        """
+        logger.info("Starting Interactive Categorization...")
+        df = self._prepare_df(df, description_col)
+        
+        for i in range(0, len(df), batch_size):
+            batch_df = df.iloc[i:i + batch_size].copy()
+            
+            # Process the batch
+            logger.info(f"\n--- Processing batch {i // batch_size + 1} ({len(batch_df)} rows) ---")
+            batch_df = self._tokenize_df(batch_df, description_col)
+            batch_df = self._resolve_df(batch_df, description_col)
+            
+            # Update the main dataframe with the results from the batch
+            df.update(batch_df)
+            
+            # Discover and yield unknowns found in this batch
+            unknowns = self.discover_entities(batch_df)
+            if unknowns:
+                logger.info(f"Discovered {len(unknowns)} unknowns in this batch.")
+                yield unknowns
+                
+                # After yielding, re-resolve the current batch to apply new knowledge
+                # before moving to the next one.
+                logger.info("Re-applying knowledge to current batch...")
+                batch_df = self._resolve_df(batch_df, description_col)
+                df.update(batch_df)
+
+        logger.info("Interactive categorization complete.")
 
     def _post_process_tokens(self, token_list: List[str]) -> List[str]:
         """
@@ -134,18 +167,24 @@ class CategorizationEngine:
 
     # --- API Methods for Web App ---
     
-    def discover_entities(self, df: pd.DataFrame) -> List[Dict]:
+    def discover_entities(self, df: pd.DataFrame, description_col: str = "description") -> List[Dict]:
         """
         Returns a list of unique 'merchant_clean' strings that failed resolution,
-        along with Suggested Matches from the Phonebook.
+        along with Suggested Matches and original description examples.
         """
         # Filter for rows where Entity is None (failed strict resolution)
-        unknowns = df[df['Entity'].isna()]['merchant_clean'].dropna().unique()
+        unknown_df = df[df['Entity'].isna()].copy()
+        unique_unknown_merchants = unknown_df['merchant_clean'].dropna().unique()
         
         results = []
-        for name in unknowns:
+        for name in unique_unknown_merchants:
             if not name.strip(): continue
             
+            # Find original descriptions for this unknown merchant, if the column exists
+            original_examples = []
+            if description_col in unknown_df.columns:
+                original_examples = unknown_df[unknown_df['merchant_clean'] == name][description_col].unique().tolist()
+
             # Find best suggestion
             matches = self.resolver.find_similar(name, top_n=1)
             suggestion = None
@@ -163,7 +202,8 @@ class CategorizationEngine:
             results.append({
                 "raw": name,
                 "suggested_name": suggestion,
-                "confidence": round(confidence, 2)
+                "confidence": round(confidence, 2),
+                "original_examples": original_examples[:3] # Return up to 3 unique examples
             })
             
         return results

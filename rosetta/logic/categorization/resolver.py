@@ -1,3 +1,4 @@
+import re
 import difflib
 from typing import Optional, List, Tuple
 from rosetta.models import MerchantEntity
@@ -24,19 +25,39 @@ class EntityResolver:
         1. Exact Match (O(1))
         2. Fuzzy Match (Levenshtein)
         """
-        candidate_lower = candidate_name.lower().strip()
+        if not isinstance(candidate_name, str) or not candidate_name.strip():
+            return None
+
+        candidate_lower = candidate_name.lower().strip().replace('_', ' ')
         if not candidate_lower:
             return None
 
         # 1. Exact Match
+        # We check the original candidate name for exact match
         entity = self.phonebook.find_entity_by_alias(candidate_name)
         if entity:
             return entity
 
-        # 2. Fuzzy Match
+        # 2. Substring Match
+        # Find all aliases that are substrings and select the most specific (longest) one.
+        found_matches = []
+        for alias in self.phonebook.alias_index.keys():
+            try:
+                if re.search(r'\b' + re.escape(alias) + r'\b', candidate_lower):
+                    found_matches.append(alias)
+            except re.error as e:
+                logger.warning(f"Regex error for alias '{alias}': {e}")
+                continue
+        
+        if found_matches:
+            best_match = max(found_matches, key=len)
+            entity_id = self.phonebook.alias_index[best_match]
+            logger.debug(f"Substring Match (longest): '{candidate_name}' -> '{best_match}' ({entity_id})")
+            return self.phonebook.entities[entity_id]
+
+        # 3. Fuzzy Match
         # We compare candidate against all known aliases in the index
         # NOTE: For massive DBs, this needs optimization (SimHash or vector search).
-        # For < 5000 aliases, Python's difflib is fine.
         
         all_aliases = list(self.phonebook.alias_index.keys())
         matches = difflib.get_close_matches(candidate_lower, all_aliases, n=1, cutoff=self.SIMILARITY_THRESHOLD)

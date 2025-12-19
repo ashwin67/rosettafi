@@ -14,6 +14,7 @@ TargetSchema = pa.DataFrameSchema({
     "account": pa.Column(str),
     "amount": pa.Column(float), 
     "currency": pa.Column(str), # Allow any currency/ticker symbol
+    "description": pa.Column(str, nullable=True),
     "price": pa.Column(float, nullable=True),
     "meta": pa.Column(object, nullable=True), # Store JSON or Dict
 })

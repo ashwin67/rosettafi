@@ -66,82 +66,78 @@ if __name__ == "__main__":
     
     logger.info("Entity Resolution Engine started...")
     
-    # Run the engine on the dataframe
-    # This now adds 'Entity', 'Category', and 'merchant_clean' columns
-    normalized_df = categorizer.run(normalized_df, description_col="description")
+    logger.info("Starting Interactive Entity Resolution...")
     
-    # For Ledger compatibility, map 'Category' to 'account'
-    normalized_df['account'] = normalized_df['Category']
+    # Use the interactive, generator-based runner
+    # This processes the dataframe in batches and yields unknowns for feedback
+    interactive_runner = categorizer.run_interactive(normalized_df, "description", batch_size=50)
     
-    categorized_df = normalized_df.copy()
-    
-    print("\n--- Stage 5 Output (Entity & Category) ---")
-    print(categorized_df[['date', 'amount', 'Entity', 'Category']].head())
-    
-    # Check for Unknowns
-    unknowns = categorizer.discover_entities(categorized_df)
-    if unknowns:
-        print(f"\n[!] Discovered {len(unknowns)} Unknown Entities.")
-        print("--- Entitiy Resolution Mode ---")
+    for unknowns_batch in interactive_runner:
+        # Pass the description column name to discover_entities
+        unknown_details = categorizer.discover_entities(normalized_df[normalized_df['Category'] == UNKNOWN_CATEGORY], "description")
+
+        if not unknown_details:
+            continue
+
+        print(f"\n[!] Discovered {len(unknown_details)} new unique unknown entities.")
+        print("--- Entity Resolution Mode ---")
         
         try:
-            # Interactive Loop
-            for item in unknowns:
+            # Loop through the unknowns found in the current batch
+            for item in unknown_details:
                 raw_name = item['raw']
                 suggestion = item['suggested_name']
-                confidence = item['confidence']
+                original_examples = item['original_examples']
                 
-                print(f"\nEntity: '{raw_name}'")
+                print(f"\nNext Entity: '{raw_name}'")
+                if original_examples:
+                    print(f"  e.g. Original Description: \"{original_examples[0]}\"")
                 
                 # Step 1: Identity
                 default_identity = suggestion if suggestion else raw_name
-                prompt_identity = f"Identify Entity [Enter for '{default_identity}']: "
+                prompt_identity = f"Identify Entity [Enter for '{default_identity}', 'skip' to ignore]: "
                 identity_input = input(prompt_identity).strip()
                 
                 if identity_input.lower() == 'skip':
-                    continue
+                    print(f" -> Skipping '{raw_name}' for this session.")
+                    categorizer.register_entity(raw_name, category="Skipped", alias=raw_name)
+                    continue # Move to the next item in the batch
                 
                 final_name = identity_input if identity_input else default_identity
                 
                 # Step 2: Category
-                # In a real app, we might check if 'final_name' is already a known entity to auto-fetch category.
-                # For now, we ask for category unless it's a known suggestion we accepted.
-                
+                existing_entity = categorizer.phonebook.find_entity_by_alias(final_name)
                 final_category = None
-                
-                # If we accepted a suggestion, we assume the user might be happy with existing category logic, 
-                # but technically register_entity needs a category if it's new.
-                # If we are just linking an alias to an existing entity (Suggestion accepted), 
-                # we don't strictly need to re-enter category, but we can allow override.
-                
-                is_suggestion_accepted = (not identity_input) and suggestion
-                
-                if is_suggestion_accepted:
-                    # User accepted suggestion. We can skip category prompt or offer override.
-                    # Let's keep it simple: Link alias.
-                    print(f" -> Linked to '{final_name}'")
-                    categorizer.register_entity(final_name, category=None, alias=raw_name)
-                    continue
+                if existing_entity and existing_entity.default_category != UNKNOWN_CATEGORY:
+                    prompt_cat = f"Category [Enter for '{existing_entity.default_category}']: "
                 else:
-                    # User entered a new name OR accepted raw_name as new entity.
-                    # We need a category.
                     prompt_cat = f"Category [Enter for '{UNKNOWN_CATEGORY}']: "
-                    cat_input = input(prompt_cat).strip()
-                    final_category = cat_input if cat_input else UNKNOWN_CATEGORY
+                
+                cat_input = input(prompt_cat).strip()
+                
+                if cat_input:
+                    final_category = cat_input
+                elif existing_entity:
+                    final_category = existing_entity.default_category
+                else:
+                    final_category = UNKNOWN_CATEGORY
                     
-                    categorizer.register_entity(final_name, final_category, alias=raw_name)
-                    print(f" -> Registered '{final_name}' ({final_category})")
+                categorizer.register_entity(final_name, final_category, alias=raw_name)
+                print(f" -> Registered '{final_name}' ({final_category})")
 
-        except EOFError:
-            print("\n[!] Non-interactive mode detected. Skipping remaining entities.")
-
-
-        # Re-Run Categorization to apply new knowledge
-        print("\nRe-running categorization with updated Phonebook...")
-        normalized_df = categorizer.run(normalized_df, description_col="description")
-        
-        # Update categorized_df
-        categorized_df = normalized_df.copy()
+        except (EOFError, KeyboardInterrupt):
+            print("\n[!] Exiting interactive mode. Continuing with current categorizations.")
+            break # Exit the for loop over the generator
+            
+    print("\n[+] Interactive resolution complete.")
+    
+    # The normalized_df is now updated with the learned categories
+    # Map 'Category' to 'account' for the ledger
+    categorized_df = normalized_df
+    categorized_df['account'] = categorized_df['Category']
+    
+    # Filter out any rows that were explicitly skipped
+    categorized_df = categorized_df[categorized_df['account'] != 'Skipped']
     
     # Stage 6: Ledger (Split Generation)
     from rosetta.logic.ledger import LedgerEngine
