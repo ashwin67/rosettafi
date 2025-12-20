@@ -35,24 +35,24 @@ def test_online_learning_simulation():
     
     # --- First Pass ---
     # The system runs and discovers "New Cool Cafe" is unknown.
-    categorized_df_pass1 = categorizer.run(df.copy(), description_col="description")
+    categorized_df_pass1 = categorizer.resolve_and_categorize(df.copy(), description_col="description")
     
     unknowns = categorizer.discover_entities(categorized_df_pass1, "description")
     
     # Assert that "New Cool Cafe" was discovered as an unknown entity
     unknown_names = [u['raw'] for u in unknowns]
-    assert "New Cool Cafe" in unknown_names
+    assert "new cool cafe" in unknown_names
     assert unknowns[0]['original_examples'] is not None
     
     # --- User Interaction Simulation ---
     # The user now categorizes "New Cool Cafe".
     print("\nSimulating user categorizing 'New Cool Cafe' as 'Restaurants'")
-    categorizer.register_entity("New Cool Cafe", "Restaurants")
+    categorizer.register_entity("New Cool Cafe", "Restaurants", alias="new cool cafe")
     
     # --- Second Pass ---
     # The system re-runs categorization. The new knowledge should be applied.
     print("Re-running categorization to apply new knowledge...")
-    categorized_df_pass2 = categorizer.run(df.copy(), description_col="description")
+    categorized_df_pass2 = categorizer.resolve_and_categorize(df.copy(), description_col="description")
     
     pd.set_option('display.max_colwidth', None)
     print("\n--- Categorization Results after Learning ---")
@@ -98,15 +98,15 @@ def test_learning_with_skip_scenario():
     df = pd.DataFrame(data)
     
     # --- Pass 1: Initial Discovery ---
-    categorized_df = categorizer.run(df.copy(), description_col="description")
+    categorized_df = categorizer.resolve_and_categorize(df.copy(), description_col="description")
     unknowns = categorizer.discover_entities(categorized_df, "description")
     unknown_names = sorted([u['raw'] for u in unknowns])
-    assert unknown_names == ["Cafe Alpha", "Some other place", "Store Beta"]
+    assert unknown_names == ["cafe alpha", "some other place", "store beta"]
     
     # --- Pass 2: User categorizes 'Cafe Alpha' ---
     print("\nSimulating user categorizing 'Cafe Alpha'")
-    categorizer.register_entity("Cafe Alpha", "Restaurants")
-    categorized_df = categorizer.run(df.copy(), description_col="description")
+    categorizer.register_entity("Cafe Alpha", "Restaurants", alias="cafe alpha")
+    categorized_df = categorizer.resolve_and_categorize(df.copy(), description_col="description")
     
     # Assert 'Cafe Alpha' is learned
     assert (categorized_df[categorized_df['description'] == "Cafe Alpha"]['Category'] == 'Restaurants').all()
@@ -114,12 +114,12 @@ def test_learning_with_skip_scenario():
     # Discover remaining unknowns
     unknowns = categorizer.discover_entities(categorized_df, "description")
     unknown_names = sorted([u['raw'] for u in unknowns])
-    assert unknown_names == ["Some other place", "Store Beta"]
+    assert unknown_names == ["some other place", "store beta"]
 
     # --- Pass 3: User skips 'Store Beta' ---
     print("\nSimulating user skipping 'Store Beta'")
-    categorizer.register_entity("Store Beta", "Skipped", alias="Store Beta")
-    categorized_df = categorizer.run(df.copy(), description_col="description")
+    categorizer.register_entity("Store Beta", "Skipped", alias="store beta")
+    categorized_df = categorizer.resolve_and_categorize(df.copy(), description_col="description")
     
     # Assert 'Store Beta' is now 'Skipped'
     assert (categorized_df[categorized_df['description'] == "Store Beta"]['Category'] == 'Skipped').all()
@@ -128,5 +128,5 @@ def test_learning_with_skip_scenario():
     # Discover remaining unknowns. Only "Some other place" should be left.
     unknowns = categorizer.discover_entities(categorized_df, "description")
     unknown_names = sorted([u['raw'] for u in unknowns])
-    assert unknown_names == ["Some other place"]
+    assert unknown_names == ["some other place"]
 

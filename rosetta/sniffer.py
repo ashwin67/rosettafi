@@ -39,7 +39,11 @@ def sniff_header_row(file_path_or_buffer) -> pd.DataFrame:
         # File path (CSV/TXT)
         if not '\n' in file_path_or_buffer and (file_path_or_buffer.endswith('.csv') or file_path_or_buffer.endswith('.txt')):
              with open(file_path_or_buffer, 'r') as f:
-                lines = [next(f) for _ in range(SNIFF_WINDOW_SIZE)]
+                lines = []
+                for i, line in enumerate(f):
+                    if i >= SNIFF_WINDOW_SIZE:
+                        break
+                    lines.append(line)
         else:
              # String content
              lines = file_path_or_buffer.splitlines()[:SNIFF_WINDOW_SIZE]

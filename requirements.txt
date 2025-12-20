@@ -11,3 +11,5 @@ xlrd
 openpyxl
 pytest
 pytest-cov
+thefuzz
+python-Levenshtein

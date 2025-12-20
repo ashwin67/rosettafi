@@ -92,6 +92,10 @@ class Phonebook:
         
         self.save()
 
+    def get_all_categories(self) -> set:
+        """Returns a set of all unique category names."""
+        return {entity.default_category for entity in self.entities.values() if entity.default_category}
+
     def add_context_rule(self, entity_name: str, keyword: str, category: str):
         """Adds a rule like: If 'AWS' in description, category='Tech'."""
         slug = entity_name.lower().replace(" ", "_")

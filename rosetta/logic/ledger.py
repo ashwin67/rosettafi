@@ -33,13 +33,6 @@ class LedgerEngine:
     Handles standard expenses and complex investment transactions.
     """
 
-    def __init__(self):
-        # LLM client for backup investment extraction
-        self.client = instructor.from_openai(
-            OpenAI(base_url=LLM_BASE_URL, api_key=LLM_API_KEY),
-            mode=instructor.Mode.JSON,
-        )
-
     def generate_splits(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         Main entry point. Iterates through the DataFrame and generates splits.
@@ -90,7 +83,8 @@ class LedgerEngine:
             'description': desc,
             'account': DEFAULT_ASSET_ACCOUNT,
             'amount': amount, 
-            'currency': DEFAULT_CURRENCY
+            'currency': DEFAULT_CURRENCY,
+            'price': None
         }
 
         # Split 2: The Category (Expense/Income)
@@ -103,7 +97,8 @@ class LedgerEngine:
             'description': desc,
             'account': category_account,
             'amount': -amount,
-            'currency': DEFAULT_CURRENCY
+            'currency': DEFAULT_CURRENCY,
+            'price': None
         }
 
         return [split_bank, split_category]
@@ -192,20 +187,20 @@ class LedgerEngine:
                 except Exception as e:
                     logger.warning(f"Regex match failed parsing: {e}")
 
-        # 2. Slow Path (LLM)
-        logger.info(f"SLOW PATH INVESTMENT: Detecting details for '{description}' via LLM...")
-        try:
-            details = self.client.chat.completions.create(
-                model=LLM_MODEL_NAME,
-                messages=[
-                    {"role": "system", "content": LEDGER_INVESTMENT_PROMPT},
-                    {"role": "user", "content": description}
-                ],
-                response_model=InvestmentDetails,
-                max_retries=1
-            )
-            logger.info(f"LLM EXTRACTED: {details}")
-            return details
-        except Exception as e:
-            logger.error(f"LLM Investment Extraction Failed: {e}")
-            return None
+        # 2. Slow Path (LLM) -> DISABLED
+        # logger.info(f"SLOW PATH INVESTMENT: Detecting details for '{description}' via LLM...")
+        # try:
+        #     details = self.client.chat.completions.create(
+        #         model=LLM_MODEL_NAME,
+        #         messages=[
+        #             {"role": "system", "content": LEDGER_INVESTMENT_PROMPT},
+        #             {"role": "user", "content": description}
+        #         ],
+        #         response_model=InvestmentDetails,
+        #         max_retries=1
+        #     )
+        #     logger.info(f"LLM EXTRACTED: {details}")
+        #     return details
+        # except Exception as e:
+        #     logger.error(f"LLM Investment Extraction Failed: {e}")
+        return None

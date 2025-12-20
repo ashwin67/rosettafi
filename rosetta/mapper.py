@@ -59,9 +59,28 @@ def get_column_mapping(df: pd.DataFrame, confirm_mapping: bool = False) -> Colum
         logger.error(f"LLM Mapping failed: {e}")
 
     # 3. Fallback / Validation
+    
+    # Add a validation check for the LLM's output
+    def is_mapping_valid(m: ColumnMapping) -> bool:
+        if not m.date_col or not m.desc_col:
+            return False
+        if m.polarity.type == 'credit_debit':
+            if not m.polarity.credit_col or not m.polarity.debit_col:
+                return False
+        if m.polarity.type == 'direction':
+            if not m.polarity.direction_col:
+                return False
+        if m.polarity.type == 'signed':
+            if not m.amount_col:
+                return False
+        return True
+
+    if mapping and not is_mapping_valid(mapping):
+        logger.warning(f"LLM returned an invalid mapping: {mapping}. Falling back to heuristics.")
+        mapping = None
+
     if mapping is None:
-        logger.warning("!!! USING FALLBACK MOCK (LLM Failed) !!!")
-        # Use extracted logic from rosetta.logic.mapper_logic
+        logger.warning("LLM mapping failed or was invalid. Using heuristic fallback.")
         mapping = heuristic_map_columns(raw_headers)
         logger.info(f"Fallback Mapping result: {mapping}")
     

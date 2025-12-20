@@ -1,5 +1,5 @@
 import re
-import difflib
+from thefuzz import process, fuzz
 from typing import Optional, List, Tuple
 from rosetta.models import MerchantEntity
 from rosetta.logic.categorization.phonebook import Phonebook
@@ -10,88 +10,75 @@ logger = get_logger(__name__)
 class EntityResolver:
     """
     Pass 2: The Resolver.
-    Takes a list of clean tokens (candidate names) and finds the matching Entity in the Phonebook.
-    Uses Fuzzy Matching to handle slight variations.
+    Takes a candidate name and finds the matching Entity in the Phonebook.
+    Uses a hybrid approach: Exact Match -> Substring Match -> Fuzzy Match.
     """
     
     def __init__(self, phonebook: Phonebook):
         self.phonebook = phonebook
-        # We define a similarity threshold (0.0 - 1.0)
-        self.SIMILARITY_THRESHOLD = 0.85
+        # We define a similarity threshold (0-100 for thefuzz)
+        self.SIMILARITY_THRESHOLD = 88
 
     def resolve(self, candidate_name: str) -> Optional[MerchantEntity]:
         """
-        Resolves a string to an Entity.
-        1. Exact Match (O(1))
-        2. Fuzzy Match (Levenshtein)
+        Resolves a string to an Entity using a hybrid approach.
         """
         if not isinstance(candidate_name, str) or not candidate_name.strip():
             return None
 
-        candidate_lower = candidate_name.lower().strip().replace('_', ' ')
-        if not candidate_lower:
-            return None
-
-        # 1. Exact Match
-        # We check the original candidate name for exact match
-        entity = self.phonebook.find_entity_by_alias(candidate_name)
+        candidate_lower = candidate_name.lower().strip()
+        
+        # 1. Exact Match (Fastest)
+        entity = self.phonebook.find_entity_by_alias(candidate_lower)
         if entity:
             return entity
 
-        # 2. Substring Match
-        # Find all aliases that are substrings and select the most specific (longest) one.
+        # 2. Substring Match (Prefer longest match)
         found_matches = []
         for alias in self.phonebook.alias_index.keys():
-            try:
-                if re.search(r'\b' + re.escape(alias) + r'\b', candidate_lower):
-                    found_matches.append(alias)
-            except re.error as e:
-                logger.warning(f"Regex error for alias '{alias}': {e}")
-                continue
+            if re.search(r'\b' + re.escape(alias) + r'\b', candidate_lower):
+                found_matches.append(alias)
         
         if found_matches:
+            # Prioritize the longest matching alias (e.g., "amazon web services" over "amazon")
             best_match = max(found_matches, key=len)
             entity_id = self.phonebook.alias_index[best_match]
-            logger.debug(f"Substring Match (longest): '{candidate_name}' -> '{best_match}' ({entity_id})")
+            logger.debug(f"Substring Match: '{candidate_name}' -> '{best_match}'")
             return self.phonebook.entities[entity_id]
 
-        # 3. Fuzzy Match
-        # We compare candidate against all known aliases in the index
-        # NOTE: For massive DBs, this needs optimization (SimHash or vector search).
-        
+        # 3. Fuzzy Match (Slower Fallback)
         all_aliases = list(self.phonebook.alias_index.keys())
-        matches = difflib.get_close_matches(candidate_lower, all_aliases, n=1, cutoff=self.SIMILARITY_THRESHOLD)
+        if not all_aliases:
+            return None
+            
+        best_match = process.extractOne(candidate_lower, all_aliases, score_cutoff=self.SIMILARITY_THRESHOLD)
         
-        if matches:
-            best_match_alias = matches[0]
+        if best_match:
+            best_match_alias, score = best_match
             entity_id = self.phonebook.alias_index[best_match_alias]
-            logger.debug(f"Fuzzy Match: '{candidate_name}' -> '{best_match_alias}' ({entity_id})")
+            logger.debug(f"Fuzzy Match: '{candidate_name}' -> '{best_match_alias}' (Score: {score})")
             return self.phonebook.entities[entity_id]
 
         return None
 
-    def find_similar(self, candidate_name: str, top_n: int = 3, threshold: float = 0.6) -> List[Tuple[str, float]]:
+    def find_similar(self, candidate_name: str, top_n: int = 3, threshold: float = 60.0) -> List[Tuple[str, float]]:
         """
-        Returns a list of (alias, score) tuples for the best matches.
-        Used for the 'Suggestion' phase (Who is this?).
+        Returns a list of (alias, score) tuples for the best matches using thefuzz.
+        The score is converted from 0-100 to 0.0-1.0.
         """
         candidate_lower = candidate_name.lower().strip()
         if not candidate_lower:
             return []
 
         all_aliases = list(self.phonebook.alias_index.keys())
+        if not all_aliases:
+            return []
+
+        # process.extractBests returns a list of (match, score)
+        matches = process.extractBests(candidate_lower, all_aliases, scorer=fuzz.token_set_ratio, score_cutoff=threshold, limit=top_n)
         
-        # Get matches with scores
-        # difflib.get_close_matches only returns strings, not scores. 
-        # So we calculate ratios manually for the top candidates or use a different approach.
-        # For simplicity and consistency with get_close_matches logic:
-        
-        matches = difflib.get_close_matches(candidate_lower, all_aliases, n=top_n, cutoff=threshold)
-        
-        results = []
-        for match in matches:
-            score = difflib.SequenceMatcher(None, candidate_lower, match).ratio()
-            results.append((match, score))
+        # Convert score to 0-1.0 float
+        results = [(match, score / 100.0) for match, score in matches]
             
         return results
 
@@ -100,10 +87,11 @@ class EntityResolver:
         Determines category based on Entity Default + Context Rules.
         """
         # 1. Check Context Rules
-        for rule in entity.rules:
-            if rule.contains_keyword.lower() in full_description_text.lower():
-                logger.debug(f"Context Rule Applied: '{rule.contains_keyword}' -> {rule.assign_category}")
-                return rule.assign_category
+        if entity.rules and full_description_text:
+            for rule in entity.rules:
+                if rule.contains_keyword.lower() in full_description_text.lower():
+                    logger.debug(f"Context Rule Applied: '{rule.contains_keyword}' -> {rule.assign_category}")
+                    return rule.assign_category
         
         # 2. Default
         return entity.default_category

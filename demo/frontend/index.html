@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RosettaFi Web Demonstrator</title>
+    <style>
+        body { font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif; margin: 2em; background-color: #f8f9fa; color: #212529; }
+        h1, h2 { color: #343a40; }
+        .container { max-width: 900px; margin: auto; background: white; padding: 2em; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+        .upload-section, .categorization-section, .results-section { margin-bottom: 2em; border-top: 1px solid #dee2e6; padding-top: 1.5em; }
+        
+        #file-input { display: block; margin-bottom: 1em; }
+        #upload-button, #submit-categorization-button { font-size: 1rem; padding: 0.6em 1.2em; background-color: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; transition: background-color 0.2s; }
+        #upload-button:hover, #submit-categorization-button:hover { background-color: #0056b3; }
+        #submit-categorization-button { background-color: #28a745; }
+        #submit-categorization-button:hover { background-color: #218838; }
+
+        #progress-container { margin-top: 1em; }
+        #progress-bar { width: 100%; height: 8px; border-radius: 4px; }
+        #progress-text { margin-top: 0.5em; color: #6c757d; font-size: 0.9em; }
+
+        #categorization-area, #results-area { border: 1px solid #e9ecef; padding: 1.5em; border-radius: 8px; background: #f8f9fa; }
+        #categorization-intro { margin-bottom: 1.5em; }
+
+        .categorization-card {
+            background-color: #fff;
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+            padding: 1em;
+            margin-bottom: 1em;
+        }
+        .categorization-card strong {
+            display: block;
+            margin-bottom: 0.75em;
+            font-size: 1.1em;
+        }
+        .categorization-card input {
+            width: calc(50% - 1.5em);
+            padding: 0.5em;
+            margin-right: 0.5em;
+            border: 1px solid #ced4da;
+            border-radius: 4px;
+        }
+        .suggestion-info {
+            font-size: 0.9em;
+            color: #6c757d;
+            margin: 0.5em 0;
+            padding: 0.5em;
+            background-color: #e9ecef;
+            border-radius: 4px;
+        }
+
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 0.75em; text-align: left; border-bottom: 1px solid #dee2e6; }
+        th { background-color: #e9ecef; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>RosettaFi Web Demonstrator</h1>
+        
+        <div class="upload-section">
+            <h2>1. Upload File</h2>
+            <input type="file" id="file-input" />
+            <button id="upload-button">Upload and Process</button>
+            <div id="progress-container" style="display: none;">
+                <progress id="progress-bar" value="0" max="100"></progress>
+                <p id="progress-text"></p>
+            </div>
+        </div>
+
+        <div class="categorization-section" style="display: none;">
+            <h2>2. Categorize Unknowns</h2>
+            <div id="categorization-intro"></div>
+            <div id="categorization-area"></div>
+            <button id="submit-categorization-button" style="display:none;">Submit and Continue</button>
+        </div>
+
+        <div class="results-section" style="display: none;">
+            <h2>3. Final Ledger</h2>
+            <div id="results-area"></div>
+        </div>
+    </div>
+
+    <script>
+        const fileInput = document.getElementById('file-input');
+        const uploadButton = document.getElementById('upload-button');
+        const progressContainer = document.getElementById('progress-container');
+        const progressBar = document.getElementById('progress-bar');
+        const progressText = document.getElementById('progress-text');
+
+        const categorizationSection = document.querySelector('.categorization-section');
+        const categorizationIntro = document.getElementById('categorization-intro');
+        const categorizationArea = document.getElementById('categorization-area');
+        const submitCategorizationButton = document.getElementById('submit-categorization-button');
+        
+        const resultsSection = document.querySelector('.results-section');
+        const resultsArea = document.getElementById('results-area');
+
+        let sessionId = null;
+
+        uploadButton.addEventListener('click', async () => {
+            const file = fileInput.files[0];
+            if (!file) {
+                alert('Please select a file first.');
+                return;
+            }
+            progressContainer.style.display = 'block';
+            progressText.textContent = 'Reading file and initializing session...';
+            progressBar.value = 0;
+            
+            const reader = new FileReader();
+
+            reader.onload = async (event) => {
+                const content = event.target.result;
+                const isExcel = file.name.endsWith('.xls') || file.name.endsWith('.xlsx');
+                const payload = {
+                    filename: file.name,
+                    content: content,
+                    encoding: isExcel ? 'base64' : 'text',
+                };
+
+                try {
+                    const response = await fetch('http://localhost:8000/upload', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload),
+                    });
+                    if (!response.ok) {
+                        const errorData = await response.json();
+                        throw new Error(errorData.detail || 'Failed to initialize session.');
+                    }
+                    const result = await response.json();
+                    sessionId = result.session_id;
+                    progressText.textContent = 'Session started. Fetching first batch...';
+                    
+                    runCategorizationLoop();
+
+                } catch (error) {
+                    progressText.textContent = `Error: ${error.message}`;
+                    console.error('Error:', error);
+                }
+            };
+            
+            if (file.name.endsWith('.xls') || file.name.endsWith('.xlsx')) {
+                reader.readAsDataURL(file);
+            } else {
+                reader.readAsText(file);
+            }
+        });
+
+        async function runCategorizationLoop(feedback = []) {
+            if (!sessionId) return;
+            
+            progressText.textContent = 'Processing next batch...';
+            submitCategorizationButton.style.display = 'none';
+
+            try {
+                const response = await fetch('http://localhost:8000/interactive-categorize', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ session_id: sessionId, feedback: feedback }),
+                });
+
+                if (!response.ok) {
+                    throw new Error('Failed to process batch.');
+                }
+
+                const result = await response.json();
+                
+                progressBar.max = result.total_rows || 100;
+                progressBar.value = result.processed_rows || 0;
+                
+                let autoCategorizedText = result.auto_categorized_in_batch > 0 
+                    ? `Auto-categorized ${result.auto_categorized_in_batch} items in this batch.`
+                    : '';
+                progressText.textContent = `Processed ${result.processed_rows} of ${result.total_rows} rows. ${autoCategorizedText}`;
+
+                if (result.status === 'pending_categorization') {
+                    categorizationSection.style.display = 'block';
+                    renderCategorizationForm(result.unknowns, result.categories);
+                } else if (result.status === 'completed') {
+                    progressText.textContent = 'Processing complete!';
+                    progressBar.value = progressBar.max;
+                    categorizationSection.style.display = 'none';
+                    resultsSection.style.display = 'block';
+                    renderTable(result.data);
+                }
+
+            } catch (error) {
+                progressText.textContent = `Error: ${error.message}`;
+                console.error('Error:', error);
+            }
+        }
+        
+        submitCategorizationButton.addEventListener('click', async () => {
+            const feedback = [];
+            const cards = categorizationArea.querySelectorAll('.categorization-card');
+
+            cards.forEach(card => {
+                const nameInput = card.querySelector('input[data-type="name"]');
+                const categoryInput = card.querySelector('input[data-type="category"]');
+                if (nameInput.value && categoryInput.value) {
+                    feedback.push({
+                        raw: nameInput.dataset.raw,
+                        name: nameInput.value,
+                        category: categoryInput.value,
+                    });
+                }
+            });
+            
+            runCategorizationLoop(feedback);
+        });
+
+        function renderCategorizationForm(unknowns, categories) {
+            categorizationArea.innerHTML = '';
+            categorizationIntro.textContent = `Found ${unknowns.length} new transaction types. Please provide a clean name and a category for them.`;
+
+            const categoryDatalist = document.createElement('datalist');
+            categoryDatalist.id = 'category-list';
+            categories.forEach(cat => {
+                const option = document.createElement('option');
+                option.value = cat;
+                categoryDatalist.appendChild(option);
+            });
+            categorizationArea.appendChild(categoryDatalist);
+
+            unknowns.forEach((item) => {
+                const card = document.createElement('div');
+                card.className = 'categorization-card';
+                
+                let suggestionHTML = '';
+                if (item.suggested_name) {
+                    const confidencePercent = Math.round(item.confidence * 100);
+                    suggestionHTML = `
+                        <div class="suggestion-info">
+                            Suggestion: <strong>${item.suggested_name}</strong> 
+                            (Category: ${item.suggested_category || 'N/A'}) - 
+                            Confidence: ${confidencePercent}%
+                        </div>
+                    `;
+                }
+
+                card.innerHTML = `
+                    <p><strong>Original:</strong> "${item.original_examples[0]}"</p>
+                    ${suggestionHTML}
+                    <label>Clean Name: <input type="text" data-type="name" data-raw="${item.raw}" value="${item.suggested_name || item.raw}" placeholder="Entity Name"></label>
+                    <label>Category: <input type="text" data-type="category" list="category-list" value="${item.suggested_category || ''}" placeholder="Category"></label>
+                `;
+                categorizationArea.appendChild(card);
+            });
+            
+            submitCategorizationButton.style.display = 'block';
+        }
+
+        function renderTable(data) {
+            resultsArea.innerHTML = '';
+            if (!data || data.length === 0) {
+                resultsArea.textContent = 'No data to display.';
+                return;
+            }
+
+            const table = document.createElement('table');
+            const thead = document.createElement('thead');
+            const tbody = document.createElement('tbody');
+            const headers = Object.keys(data[0]).filter(h => h !== 'confidence');
+
+            const headerRow = document.createElement('tr');
+            headers.forEach(header => {
+                const th = document.createElement('th');
+                th.textContent = header;
+                headerRow.appendChild(th);
+            });
+            thead.appendChild(headerRow);
+
+            data.forEach(row => {
+                const tr = document.createElement('tr');
+                if (row.confidence) {
+                    if (row.confidence === 1.0) {
+                        tr.style.backgroundColor = 'rgba(40, 167, 69, 0.2)';
+                    } else if (row.confidence >= 0.9) {
+                        tr.style.backgroundColor = 'rgba(255, 193, 7, 0.2)';
+                    }
+                }
+                headers.forEach(header => {
+                    const td = document.createElement('td');
+                    td.textContent = row[header];
+                    tr.appendChild(td);
+                });
+                tbody.appendChild(tr);
+            });
+
+            table.appendChild(thead);
+            table.appendChild(tbody);
+            resultsArea.appendChild(table);
+        }
+    </script>
+</body>
+</html>
