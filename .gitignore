@@ -31,3 +31,7 @@ htmlcov/
 code.txt
 category_memory.json
 bank_configs.json
+checkpoints/
+*.db
+*.wal
+*.xls

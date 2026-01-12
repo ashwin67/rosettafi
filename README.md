@@ -101,6 +101,8 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 python main.py [optional_file_path]
+
+PYTHONPATH=. uvicorn demo.backend.main:app --reload
 ```
 
 ### Interactive Entity Resolution

@@ -1,21 +1,15 @@
-# To run this server, use the following command from the root project directory:
-# PYTHONPATH=. uvicorn demo.backend.main:app --reload
-
-from fastapi import FastAPI, File, UploadFile, Body
+from fastapi import FastAPI, Body
 from fastapi.middleware.cors import CORSMiddleware
-import shutil
-from pathlib import Path
-import pandas as pd
 import uuid
-from typing import List, Optional
+import base64
+from pathlib import Path
+from typing import List, Dict, Any, Optional
+from pydantic import BaseModel
+import pandas as pd
 
-# Rosetta Imports
-from rosetta.sniffer import sniff_header_row
-from rosetta.mapper import get_column_mapping
-from rosetta.rules import RulesEngine
-from rosetta.validator import validate_data
-from rosetta.logic.categorization.engine import CategorizationEngine
-from rosetta.logic.ledger import LedgerEngine
+# Rosetta V2 Imports
+from rosetta.pipeline import RosettaPipeline
+from rosetta.data.constants import UNKNOWN_CATEGORY
 
 app = FastAPI()
 
@@ -28,14 +22,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# In-memory storage for demo purposes
+# Persistent Pipeline & Session Store
+PIPELINE = RosettaPipeline("rosetta_v2.db")
 SESSION_STORE = {}
-CONFIDENCE_THRESHOLD = 0.9
-BATCH_SIZE = 5
-
-from pydantic import BaseModel
-
-import base64
 
 class FileUploadRequest(BaseModel):
     filename: str
@@ -43,181 +32,149 @@ class FileUploadRequest(BaseModel):
     encoding: str # 'text' or 'base64'
 
 @app.post("/upload")
-async def initialize_session(request: FileUploadRequest):
+async def upload_file(request: FileUploadRequest):
     """
-    Initializes a new categorization session.
-    - Creates a session ID.
-    - Runs the initial ETL (Sniff, Map, Rules).
-    - Stores the normalized DataFrame and a new Categorizer instance.
-    - Returns the session_id to the client.
+    Initializes a new session by processing the uploaded file through the V2 pipeline.
     """
     session_id = str(uuid.uuid4())
     temp_dir = Path("temp")
     temp_dir.mkdir(exist_ok=True)
-    file_path = temp_dir / request.filename
+    file_path = temp_dir / f"{session_id}_{request.filename}"
     
-    # Write content based on encoding
+    # 1. Save file
     if request.encoding == 'base64':
-        # The content is a data URL like "data:application/vnd.ms-excel;base64,..."
-        # We need to strip the prefix and decode.
-        header, encoded = request.content.split(",", 1)
+        if "," in request.content:
+            _, encoded = request.content.split(",", 1)
+        else:
+            encoded = request.content
         data = base64.b64decode(encoded)
         with open(file_path, "wb") as f:
             f.write(data)
-    else: # text
+    else:
         with open(file_path, "w", encoding="utf-8") as f:
             f.write(request.content)
+            
+    # 2. Run Pipeline (Vector Search Phase)
+    results = PIPELINE.process_file(str(file_path))
     
-    # 1. Sniffer, 2. Mapper, 3. Rules Engine
-    clean_df = sniff_header_row(str(file_path))
-    mapping = get_column_mapping(clean_df)
-    engine = RulesEngine(mapping)
-    normalized_df = engine.apply(clean_df)
+    if results.get("status") == "error":
+        return results
 
-    categorizer = CategorizationEngine()
-    normalized_df = categorizer._prepare_df(normalized_df, "description")
-
-    # Initialize session
+    # 3. Store in Session
     SESSION_STORE[session_id] = {
-        "categorizer": categorizer,
-        "df": normalized_df,
-        "index": 0,
-        "description_col": "description",
-        "noise_words": set(),
+        "processed": results['processed'],
+        "needs_review": results['needs_review'],
+        "mapping": results['mapping'],
+        "file_path": str(file_path)
     }
     
-    return {"session_id": session_id}
-
-
-import logging
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+    return {
+        "session_id": session_id,
+        "summary": {
+            "total": len(results['processed']) + len(results['needs_review']),
+            "auto_processed": len(results['processed']),
+            "needs_review": len(results['needs_review'])
+        }
+    }
 
 @app.post("/interactive-categorize")
-async def interactive_categorize_session(payload: dict = Body(...)):
+async def interactive_loop(payload: Dict = Body(...)):
     """
-    The main endpoint for the interactive categorization loop.
-    - Handles user feedback from the previous step.
-    - Finds the next batch of items that need manual categorization.
-    - Skips items that can be auto-categorized with high confidence.
+    The main interactive loop:
+    - Receives user labels.
+    - Updates knowledge (Vector DB + SetFit).
+    - Returns the next batch of uncertain items.
     """
     session_id = payload.get('session_id')
-    user_feedback = payload.get('feedback', [])
+    feedback = payload.get('feedback', []) # List of labeled items
+    
+    print(f"DEBUG: interactive-categorize for session {session_id}, feedback items: {len(feedback)}")
+    
     session = SESSION_STORE.get(session_id)
-
     if not session:
-        return {"status": "error", "message": "Invalid session ID."}
-
-    categorizer = session["categorizer"]
-    df = session["df"]
-    
-    # 1. Learn from user feedback (for both entities and noise)
-    if user_feedback:
-        logger.info(f"Registering user feedback: {user_feedback}")
-        for item in user_feedback:
-            # Register the entity mapping
-            categorizer.register_entity(item['name'], item['category'], alias=item['raw'])
+        return {"status": "error", "message": "Session not found or expired."}
+        
+    # 1. Active Learning: Update model with user feedback
+    if feedback:
+        # Map frontend keys to pipeline keys
+        mapped_feedback = []
+        for f in feedback:
+            mapped_feedback.append({
+                "entity": f.get('name'),
+                "category": f.get('category'),
+                "cleaned_description": f.get('raw')
+            })
             
-            # Learn noise words
-            raw_tokens = set(item['raw'].split())
-            name_tokens = set(item['name'].lower().split())
-            new_noise = raw_tokens - name_tokens
-            session["noise_words"].update(new_noise)
+        # Update knowledge & retrain SetFit immediately
+        PIPELINE.update_knowledge(mapped_feedback)
         
-        logger.info(f"Updated noise list: {session['noise_words']}")
-        # Re-clean the entire dataframe with the new noise list
-        df = categorizer._prepare_df(df, session["description_col"], session["noise_words"])
-        session["df"] = df
-
-    # 2. Find the next batch that needs categorization
-    items_to_categorize = []
-    auto_categorized_in_batch = 0
+        # Re-evaluate remaining review items with updated model
+        remaining = session["needs_review"]
+        # Skip items that were just labeled (using cleaned_description as key)
+        labeled_keys = {f.get('raw') for f in feedback if f.get('raw')}
+        still_needs_review = [item for item in remaining if item.get('cleaned_description') not in labeled_keys]
+        
+        if still_needs_review:
+            # Re-predict using updated SetFit model
+            texts = [item['cleaned_description'] for item in still_needs_review]
+            predictions = PIPELINE.categorizer.predict(texts)
+            
+            new_processed = []
+            new_review = []
+            for item, pred in zip(still_needs_review, predictions):
+                if pred['category']:
+                    item['account'] = pred['category']
+                    item['confidence'] = pred['confidence']
+                    item['method'] = 'setfit_v2'
+                    new_processed.append(item)
+                else:
+                    new_review.append(item)
+            
+            session["processed"].extend(new_processed)
+            session["needs_review"] = new_review
+            
+    # 2. Return state
+    total_rows = len(session["processed"]) + len(session["needs_review"])
+    processed_rows = len(session["processed"])
     
-    logger.info("--- Starting new categorization batch ---")
-    while session["index"] < len(df) and len(items_to_categorize) < BATCH_SIZE:
-        current_row = df.iloc[session["index"]]
-        # Use the cleaned description for all logic
-        desc = current_row['merchant_clean']
+    if session["needs_review"]:
+        # Return next batch of 5 items
+        batch = session["needs_review"][:5]
         
-        logger.info(f"Processing row {session['index']}: '{desc}'")
-
-        # Check if already categorized by a previous run
-        existing_entity = categorizer.resolver.resolve(desc)
-        if existing_entity and existing_entity.default_category != "Uncategorized":
-            logger.info(f"--> Found existing entity: '{existing_entity.canonical_name}'")
-            df.at[session["index"], 'Entity'] = existing_entity.canonical_name
-            df.at[session["index"], 'Category'] = existing_entity.default_category
-            df.at[session["index"], 'confidence'] = 1.0
-            session["index"] += 1
-            auto_categorized_in_batch += 1
-            continue
-
-        # Check for high-confidence matches
-        matches = categorizer.resolver.find_similar(desc, top_n=3)
-        logger.info(f"--> Similarity matches: {matches}")
-        
-        suggestion_name = None
-        suggestion_category = None
-        suggestion_confidence = 0.0
-
-        if matches:
-            alias, score = matches[0]
-            entity_id = categorizer.phonebook.alias_index.get(alias)
-            if entity_id:
-                entity = categorizer.phonebook.entities[entity_id]
-                
-                # Check for high confidence auto-categorization
-                if score >= CONFIDENCE_THRESHOLD:
-                    logger.info(f"--> High confidence match found: '{desc}' -> '{entity.canonical_name}' (Score: {score})")
-                    df.at[session["index"], 'Entity'] = entity.canonical_name
-                    df.at[session["index"], 'Category'] = entity.default_category
-                    df.at[session["index"], 'confidence'] = score
-                    session["index"] += 1
-                    auto_categorized_in_batch += 1
-                    continue
-                
-                # Otherwise, prepare suggestion metadata
-                suggestion_name = entity.canonical_name
-                suggestion_category = entity.default_category
-                suggestion_confidence = score
-        
-        # If we reach here, it's a low-confidence item
-        logger.info(f"--> Low confidence. Adding to manual review queue.")
-        items_to_categorize.append({
-            "raw": desc, # This is the cleaned name, for user feedback
-            "original_examples": [current_row[session["description_col"]]], # Show original for context
-            "suggested_name": suggestion_name,
-            "suggested_category": suggestion_category,
-            "confidence": round(suggestion_confidence, 2)
-        })
-        session["index"] += 1
-
-    # 3. Decide what to return
-    if items_to_categorize:
+        # Format for frontend expectations
+        formatted_unknowns = []
+        for item in batch:
+            formatted_unknowns.append({
+                "raw": item.get('cleaned_description'),
+                "original_examples": [item.get(session['mapping']['desc_col'])],
+                "suggested_name": item.get('entity'),
+                "suggested_category": item.get('account'),
+                "confidence": item.get('confidence', 0.0)
+            })
+            
         return {
             "status": "pending_categorization",
-            "unknowns": items_to_categorize,
-            "categories": list(categorizer.phonebook.get_all_categories()),
-            "total_rows": len(df),
-            "processed_rows": session["index"],
-            "auto_categorized_in_batch": auto_categorized_in_batch,
+            "unknowns": formatted_unknowns,
+            "categories": [r[0] for r in PIPELINE.db.conn.execute("SELECT DISTINCT default_category FROM merchants").fetchall() if r[0]],
+            "total_rows": total_rows,
+            "processed_rows": processed_rows,
+            "auto_categorized_in_batch": 0 # For now, as we re-process everything at once
         }
     else:
-        # No more items to categorize, finalize the process
-        df['account'] = df['Category']
-        ledger_engine = LedgerEngine()
-        ledger_df = ledger_engine.generate_splits(df)
-        final_df = validate_data(ledger_df)
-
-        # Clean up session
-        del SESSION_STORE[session_id]
+        # 3. Finalize: Generate Ledger Splits
+        ledger_df = PIPELINE.finalize_ledger(session["processed"], session["mapping"])
+        
+        # Cleanup session
+        if session_id in SESSION_STORE:
+            del SESSION_STORE[session_id]
         
         # Replace NaN with None for valid JSON output
-        final_df = final_df.where(pd.notnull(final_df), None)
-
+        ledger_df = ledger_df.where(pd.notnull(ledger_df), None)
+        ledger_data = ledger_df.to_dict(orient='records')
+        
         return {
             "status": "completed",
-            "data": final_df.to_dict(orient='records')
+            "data": ledger_data,
+            "total_rows": total_rows,
+            "processed_rows": processed_rows
         }
-

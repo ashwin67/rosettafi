@@ -11,5 +11,12 @@ xlrd
 openpyxl
 pytest
 pytest-cov
-thefuzz
-python-Levenshtein
+duckdb
+sentence-transformers
+setfit
+flashtext
+fastapi
+uvicorn
+python-multipart
+Pillow
+torch
