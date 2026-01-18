@@ -1,27 +1,234 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>RosettaFi Web Demonstrator</title>
     <style>
-        body { font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif; margin: 2em; background-color: #f8f9fa; color: #212529; }
-        h1, h2 { color: #343a40; }
-        .container { max-width: 900px; margin: auto; background: white; padding: 2em; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
-        .upload-section, .categorization-section, .results-section { margin-bottom: 2em; border-top: 1px solid #dee2e6; padding-top: 1.5em; }
-        
-        #file-input { display: block; margin-bottom: 1em; }
-        #upload-button, #submit-categorization-button { font-size: 1rem; padding: 0.6em 1.2em; background-color: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; transition: background-color 0.2s; }
-        #upload-button:hover, #submit-categorization-button:hover { background-color: #0056b3; }
-        #submit-categorization-button { background-color: #28a745; }
-        #submit-categorization-button:hover { background-color: #218838; }
+        body {
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            margin: 2em;
+            background-color: #f8f9fa;
+            color: #212529;
+        }
 
-        #progress-container { margin-top: 1em; }
-        #progress-bar { width: 100%; height: 8px; border-radius: 4px; }
-        #progress-text { margin-top: 0.5em; color: #6c757d; font-size: 0.9em; }
+        h1,
+        h2 {
+            color: #343a40;
+            margin: 0;
+        }
 
-        #categorization-area, #results-area { border: 1px solid #e9ecef; padding: 1.5em; border-radius: 8px; background: #f8f9fa; }
-        #categorization-intro { margin-bottom: 1.5em; }
+        .container {
+            max-width: 950px;
+            margin: auto;
+            background: white;
+            padding: 2em;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+        }
+
+        .header-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2em;
+        }
+
+        /* Pipeline Stepper */
+        .pipeline-steps {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 2em;
+            position: relative;
+        }
+
+        .pipeline-steps::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: #dee2e6;
+            z-index: 1;
+            transform: translateY(-50%);
+        }
+
+        .step {
+            position: relative;
+            z-index: 2;
+            background: white;
+            padding: 0.5em 1em;
+            border: 2px solid #dee2e6;
+            border-radius: 20px;
+            color: #6c757d;
+            font-weight: bold;
+            font-size: 0.9em;
+            transition: all 0.3s;
+        }
+
+        .step.active {
+            border-color: #007bff;
+            color: #007bff;
+            background: #e7f1ff;
+        }
+
+        .step.completed {
+            border-color: #28a745;
+            color: white;
+            background: #28a745;
+        }
+
+        /* Console Log */
+        .console-container {
+            margin-bottom: 2em;
+        }
+
+        .console-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            margin-bottom: 0.5em;
+        }
+
+        .console-label {
+            font-size: 0.8em;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #6c757d;
+            display: block;
+        }
+
+        .console-log {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            font-family: 'Consolas', 'Monaco', monospace;
+            padding: 1em;
+            height: 250px;
+            overflow-y: auto;
+            border-radius: 4px;
+            font-size: 0.85em;
+            line-height: 1.4;
+            box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.5);
+            border: 1px solid #333;
+        }
+
+        .console-log .log-time {
+            color: #569cd6;
+            margin-right: 0.5em;
+            user-select: none;
+        }
+
+        .console-log .log-info {
+            color: #d4d4d4;
+        }
+
+        .console-log .log-success {
+            color: #6a9955;
+            font-weight: bold;
+        }
+
+        .console-log .log-warn {
+            color: #ce9178;
+        }
+
+        .console-log .log-error {
+            color: #f44336;
+            font-weight: bold;
+        }
+
+        .console-log .log-debug {
+            color: #808080;
+            font-style: italic;
+        }
+
+        .upload-section,
+        .categorization-section,
+        .results-section {
+            margin-bottom: 2em;
+            border-top: 1px solid #dee2e6;
+            padding-top: 1.5em;
+        }
+
+        #file-input {
+            display: block;
+            margin-bottom: 1em;
+        }
+
+        #upload-button,
+        #submit-categorization-button {
+            font-size: 1rem;
+            padding: 0.6em 1.2em;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        #upload-button:hover,
+        #submit-categorization-button:hover {
+            background-color: #0056b3;
+        }
+
+        #submit-categorization-button {
+            background-color: #28a745;
+        }
+
+        #submit-categorization-button:hover {
+            background-color: #218838;
+        }
+
+        #reset-button {
+            font-size: 0.9rem;
+            padding: 0.5em 1em;
+            background-color: #dc3545;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        #reset-button:hover {
+            background-color: #c82333;
+        }
+
+        #clear-console {
+            background: none;
+            border: none;
+            color: #007bff;
+            cursor: pointer;
+            font-size: 0.8em;
+            padding: 0;
+        }
+
+        #clear-console:hover {
+            text-decoration: underline;
+        }
+
+        #progress-container {
+            margin-top: 1em;
+        }
+
+        #progress-bar {
+            width: 100%;
+            height: 8px;
+            border-radius: 4px;
+        }
+
+        #categorization-area,
+        #results-area {
+            border: 1px solid #e9ecef;
+            padding: 1.5em;
+            border-radius: 8px;
+            background: #f8f9fa;
+        }
+
+        #categorization-intro {
+            margin-bottom: 1.5em;
+        }
 
         .categorization-card {
             background-color: #fff;
@@ -29,12 +236,47 @@
             border-radius: 5px;
             padding: 1em;
             margin-bottom: 1em;
+            position: relative;
+            border-left: 4px solid #007bff;
         }
+
         .categorization-card strong {
             display: block;
-            margin-bottom: 0.75em;
-            font-size: 1.1em;
+            margin-bottom: 0.2em;
+            font-size: 1em;
+            color: #495057;
         }
+
+        /* New Meta Data Styles */
+        .transaction-meta {
+            display: flex;
+            gap: 1.5em;
+            margin-bottom: 1em;
+            font-family: monospace;
+            font-size: 0.95em;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 0.5em;
+        }
+
+        .meta-date {
+            color: #6c757d;
+        }
+
+        .meta-amount {
+            font-weight: bold;
+        }
+
+        .text-expense {
+            color: #dc3545;
+        }
+
+        /* Red */
+        .text-income {
+            color: #28a745;
+        }
+
+        /* Green */
+
         .categorization-card input {
             width: calc(50% - 1.5em);
             padding: 0.5em;
@@ -42,43 +284,80 @@
             border: 1px solid #ced4da;
             border-radius: 4px;
         }
+
         .suggestion-info {
-            font-size: 0.9em;
-            color: #6c757d;
-            margin: 0.5em 0;
+            font-size: 0.85em;
+            color: #495057;
+            margin: 0.5em 0 1em 0;
             padding: 0.5em;
-            background-color: #e9ecef;
+            background-color: #e2e3e5;
             border-radius: 4px;
+            display: inline-block;
         }
 
-        table { width: 100%; border-collapse: collapse; }
-        th, td { padding: 0.75em; text-align: left; border-bottom: 1px solid #dee2e6; }
-        th { background-color: #e9ecef; }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th,
+        td {
+            padding: 0.75em;
+            text-align: left;
+            border-bottom: 1px solid #dee2e6;
+        }
+
+        th {
+            background-color: #e9ecef;
+        }
     </style>
 </head>
+
 <body>
     <div class="container">
-        <h1>RosettaFi Web Demonstrator</h1>
-        
+        <div class="header-row">
+            <h1>RosettaFi Web Demonstrator</h1>
+            <button id="reset-button">Reset System State</button>
+        </div>
+
+        <div class="pipeline-steps">
+            <div class="step active" id="step-ingest">1. Ingestion</div>
+            <div class="step" id="step-analysis">2. Mapping Analysis</div>
+            <div class="step" id="step-resolve">3. Entity Resolution</div>
+            <div class="step" id="step-ledger">4. Ledger Gen</div>
+        </div>
+
+        <div class="console-container">
+            <div class="console-header">
+                <span class="console-label">System Console</span>
+                <button id="clear-console">Clear Log</button>
+            </div>
+            <div id="console-output" class="console-log">
+                <div class="log-line"><span class="log-time">--:--:--</span><span class="log-info">System Ready. Waiting
+                        for input.</span></div>
+            </div>
+        </div>
+
         <div class="upload-section">
-            <h2>1. Upload File</h2>
+            <h2>Upload Bank Export</h2>
+            <p style="color:#666; font-size: 0.9em; margin-bottom: 1em;">Accepts CSV, TXT, XLS, XLSX. Will automatically
+                sniff headers.</p>
             <input type="file" id="file-input" />
             <button id="upload-button">Upload and Process</button>
             <div id="progress-container" style="display: none;">
                 <progress id="progress-bar" value="0" max="100"></progress>
-                <p id="progress-text"></p>
             </div>
         </div>
 
         <div class="categorization-section" style="display: none;">
-            <h2>2. Categorize Unknowns</h2>
+            <h2>Interactive Learning</h2>
             <div id="categorization-intro"></div>
             <div id="categorization-area"></div>
-            <button id="submit-categorization-button" style="display:none;">Submit and Continue</button>
+            <button id="submit-categorization-button" style="display:none;">Submit Feedback & Retrain Model</button>
         </div>
 
         <div class="results-section" style="display: none;">
-            <h2>3. Final Ledger</h2>
+            <h2>Final Ledger</h2>
             <div id="results-area"></div>
         </div>
     </div>
@@ -86,19 +365,77 @@
     <script>
         const fileInput = document.getElementById('file-input');
         const uploadButton = document.getElementById('upload-button');
+        const resetButton = document.getElementById('reset-button');
+        const clearConsoleButton = document.getElementById('clear-console');
         const progressContainer = document.getElementById('progress-container');
         const progressBar = document.getElementById('progress-bar');
-        const progressText = document.getElementById('progress-text');
+        const consoleOutput = document.getElementById('console-output');
 
         const categorizationSection = document.querySelector('.categorization-section');
         const categorizationIntro = document.getElementById('categorization-intro');
         const categorizationArea = document.getElementById('categorization-area');
         const submitCategorizationButton = document.getElementById('submit-categorization-button');
-        
+
         const resultsSection = document.querySelector('.results-section');
         const resultsArea = document.getElementById('results-area');
 
         let sessionId = null;
+
+        // Logging Helper with Sticky Scroll
+        function log(message, type = 'info') {
+            const now = new Date();
+            const timeStr = now.toTimeString().split(' ')[0];
+            const line = document.createElement('div');
+            line.className = 'log-line';
+            line.innerHTML = `<span class="log-time">${timeStr}</span><span class="log-${type}">${message}</span>`;
+
+            // Check if user is at the bottom BEFORE appending (allow 30px threshold)
+            const isAtBottom = (consoleOutput.scrollHeight - consoleOutput.scrollTop - consoleOutput.clientHeight) < 30;
+
+            consoleOutput.appendChild(line);
+
+            // Only auto-scroll if user was already at the bottom
+            if (isAtBottom) {
+                consoleOutput.scrollTop = consoleOutput.scrollHeight;
+            }
+        }
+
+        clearConsoleButton.addEventListener('click', () => {
+            consoleOutput.innerHTML = '';
+            log("Console cleared.", "info");
+        });
+
+        // Stepper Helper
+        function setStep(stepId) {
+            document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
+            const el = document.getElementById(stepId);
+            if (el) {
+                el.classList.add('active');
+                // Mark previous as completed
+                let prev = el.previousElementSibling;
+                while (prev) {
+                    prev.classList.add('completed');
+                    prev.classList.remove('active');
+                    prev = prev.previousElementSibling;
+                }
+            }
+        }
+
+        resetButton.addEventListener('click', async () => {
+            if (!confirm("Are you sure? This will delete all learned categories, clear the database, and reset the cache.")) return;
+            log("Initiating System Reset...", "warn");
+            try {
+                const response = await fetch('http://localhost:8000/reset', { method: 'POST' });
+                if (response.ok) {
+                    alert("System Reset Successfully. The page will now reload.");
+                    location.reload();
+                } else {
+                    log("Failed to reset backend.", "error");
+                }
+            } catch (e) {
+                log("Error resetting: " + e.message, "error");
+            }
+        });
 
         uploadButton.addEventListener('click', async () => {
             const file = fileInput.files[0];
@@ -106,10 +443,18 @@
                 alert('Please select a file first.');
                 return;
             }
+
+            // UI Reset
+            categorizationSection.style.display = 'none';
+            resultsSection.style.display = 'none';
             progressContainer.style.display = 'block';
-            progressText.textContent = 'Reading file and initializing session...';
             progressBar.value = 0;
-            
+
+            log(`--- NEW SESSION: ${file.name} ---`, "info");
+
+            setStep('step-ingest');
+            log(`Reading local file...`, "info");
+
             const reader = new FileReader();
 
             reader.onload = async (event) => {
@@ -122,27 +467,44 @@
                 };
 
                 try {
+                    log("Uploading to backend pipeline...", "info");
                     const response = await fetch('http://localhost:8000/upload', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(payload),
                     });
+
                     if (!response.ok) {
                         const errorData = await response.json();
                         throw new Error(errorData.detail || 'Failed to initialize session.');
                     }
+
                     const result = await response.json();
                     sessionId = result.session_id;
-                    progressText.textContent = 'Session started. Fetching first batch...';
-                    
+
+                    log(`Session initialized [${sessionId.substring(0, 8)}...]`, "success");
+
+                    // Log Mapping Details
+                    if (result.debug_mapping) {
+                        const m = result.debug_mapping;
+                        log(`[Analysis] Detected Date Column: '${m.date_col}'`, "debug");
+                        log(`[Analysis] Detected Amount Column: '${m.amount_col}'`, "debug");
+                        log(`[Analysis] Detected Desc Column: '${m.desc_col}'`, "debug");
+                        log(`[Analysis] Polarity Logic: ${m.polarity.type}`, "debug");
+                    }
+
+                    setStep('step-analysis');
+                    log(`Initial Pass: ${result.summary.auto_processed} items auto-resolved via Vector DB.`, "info");
+                    log(`Initial Pass: ${result.summary.needs_review} items require categorization.`, "warn");
+
                     runCategorizationLoop();
 
                 } catch (error) {
-                    progressText.textContent = `Error: ${error.message}`;
+                    log(`Error: ${error.message}`, "error");
                     console.error('Error:', error);
                 }
             };
-            
+
             if (file.name.endsWith('.xls') || file.name.endsWith('.xlsx')) {
                 reader.readAsDataURL(file);
             } else {
@@ -152,9 +514,15 @@
 
         async function runCategorizationLoop(feedback = []) {
             if (!sessionId) return;
-            
-            progressText.textContent = 'Processing next batch...';
+
             submitCategorizationButton.style.display = 'none';
+            setStep('step-resolve');
+
+            if (feedback.length > 0) {
+                log(`Submitting ${feedback.length} labels. Retraining SetFit model...`, "info");
+            } else {
+                log("Fetching next batch of unknowns...", "info");
+            }
 
             try {
                 const response = await fetch('http://localhost:8000/interactive-categorize', {
@@ -168,32 +536,39 @@
                 }
 
                 const result = await response.json();
-                
+
                 progressBar.max = result.total_rows || 100;
                 progressBar.value = result.processed_rows || 0;
-                
-                let autoCategorizedText = result.auto_categorized_in_batch > 0 
-                    ? `Auto-categorized ${result.auto_categorized_in_batch} items in this batch.`
-                    : '';
-                progressText.textContent = `Processed ${result.processed_rows} of ${result.total_rows} rows. ${autoCategorizedText}`;
+
+                // Active Learning Log - Matching User Request
+                if (result.processed_rows > 0 && feedback.length > 0) {
+                    const autoResolved = result.auto_categorized_in_batch || 0;
+                    const remaining = result.total_rows - result.processed_rows;
+
+                    // Format: "Successfully categorized 12 additional items. 225 of 242 remaining."
+                    log(`Successfully categorized ${autoResolved} additional items. ${remaining} of ${result.total_rows} remaining.`, "success");
+                }
 
                 if (result.status === 'pending_categorization') {
                     categorizationSection.style.display = 'block';
+                    // Format: "[Action Required] Resolve ambiguity of following 5 items."
+                    log(`[Action Required] Resolve ambiguity of following ${result.unknowns.length} items.`, "warn");
                     renderCategorizationForm(result.unknowns, result.categories);
                 } else if (result.status === 'completed') {
-                    progressText.textContent = 'Processing complete!';
+                    setStep('step-ledger');
+                    log("All items resolved. Generating Double-Entry Ledger...", "success");
                     progressBar.value = progressBar.max;
                     categorizationSection.style.display = 'none';
                     resultsSection.style.display = 'block';
                     renderTable(result.data);
+                    log("Process Finished.", "success");
                 }
 
             } catch (error) {
-                progressText.textContent = `Error: ${error.message}`;
-                console.error('Error:', error);
+                log(`Error: ${error.message}`, "error");
             }
         }
-        
+
         submitCategorizationButton.addEventListener('click', async () => {
             const feedback = [];
             const cards = categorizationArea.querySelectorAll('.categorization-card');
@@ -209,13 +584,21 @@
                     });
                 }
             });
-            
+
             runCategorizationLoop(feedback);
         });
 
+        // Helper to check negative/positive
+        function getAmountClass(amount) {
+            if (!amount) return '';
+            // Simple check: does it contain a minus sign?
+            if (amount.toString().includes('-')) return 'text-expense';
+            return 'text-income';
+        }
+
         function renderCategorizationForm(unknowns, categories) {
             categorizationArea.innerHTML = '';
-            categorizationIntro.textContent = `Found ${unknowns.length} new transaction types. Please provide a clean name and a category for them.`;
+            categorizationIntro.textContent = `The system needs help with these ${unknowns.length} transactions.`;
 
             const categoryDatalist = document.createElement('datalist');
             categoryDatalist.id = 'category-list';
@@ -229,28 +612,37 @@
             unknowns.forEach((item) => {
                 const card = document.createElement('div');
                 card.className = 'categorization-card';
-                
+
                 let suggestionHTML = '';
+                const confidencePercent = Math.round(item.confidence * 100);
+
+                let reason = "New Entity";
+                if (confidencePercent > 0) reason = `Low Confidence (${confidencePercent}%)`;
+
                 if (item.suggested_name) {
-                    const confidencePercent = Math.round(item.confidence * 100);
                     suggestionHTML = `
                         <div class="suggestion-info">
-                            Suggestion: <strong>${item.suggested_name}</strong> 
-                            (Category: ${item.suggested_category || 'N/A'}) - 
-                            Confidence: ${confidencePercent}%
+                            <strong>Why ask?</strong> ${reason} <br>
+                            <strong>Model Guess:</strong> ${item.suggested_name} (${item.suggested_category || '?'})
                         </div>
                     `;
                 }
 
                 card.innerHTML = `
-                    <p><strong>Original:</strong> "${item.original_examples[0]}"</p>
+                    <div class="transaction-meta">
+                         <span class="meta-date">📅 ${item.date || 'Unknown Date'}</span>
+                         <span class="meta-amount ${getAmountClass(item.amount)}">${item.amount || '0.00'}</span>
+                    </div>
+                    <p><strong>Description:</strong> "${item.original_examples[0]}"</p>
                     ${suggestionHTML}
-                    <label>Clean Name: <input type="text" data-type="name" data-raw="${item.raw}" value="${item.suggested_name || item.raw}" placeholder="Entity Name"></label>
-                    <label>Category: <input type="text" data-type="category" list="category-list" value="${item.suggested_category || ''}" placeholder="Category"></label>
+                    <div style="display:flex; justify-content:space-between;">
+                        <input type="text" data-type="name" data-raw="${item.raw}" value="${item.suggested_name || item.raw}" placeholder="Clean Name (e.g. Shell)">
+                        <input type="text" data-type="category" list="category-list" value="${item.suggested_category || ''}" placeholder="Category (e.g. Transport)">
+                    </div>
                 `;
                 categorizationArea.appendChild(card);
             });
-            
+
             submitCategorizationButton.style.display = 'block';
         }
 
@@ -264,28 +656,38 @@
             const table = document.createElement('table');
             const thead = document.createElement('thead');
             const tbody = document.createElement('tbody');
-            const headers = Object.keys(data[0]).filter(h => h !== 'confidence');
+
+            // Define standard columns manually for better order
+            // 'short_description' is the new one
+            const standardCols = ['date', 'short_description', 'account', 'amount', 'currency', 'description'];
+            const allKeys = Object.keys(data[0]);
+
+            // Filter out keys that aren't in standard or are tech debt
+            const headers = standardCols.filter(c => allKeys.includes(c));
+
+            // Map headers to user friendly names
+            const headerNames = {
+                'date': 'Date',
+                'short_description': 'Entity',
+                'account': 'Account',
+                'amount': 'Amount',
+                'currency': 'Curr',
+                'description': 'Raw Description'
+            };
 
             const headerRow = document.createElement('tr');
             headers.forEach(header => {
                 const th = document.createElement('th');
-                th.textContent = header;
+                th.textContent = headerNames[header] || header;
                 headerRow.appendChild(th);
             });
             thead.appendChild(headerRow);
 
             data.forEach(row => {
                 const tr = document.createElement('tr');
-                if (row.confidence) {
-                    if (row.confidence === 1.0) {
-                        tr.style.backgroundColor = 'rgba(40, 167, 69, 0.2)';
-                    } else if (row.confidence >= 0.9) {
-                        tr.style.backgroundColor = 'rgba(255, 193, 7, 0.2)';
-                    }
-                }
                 headers.forEach(header => {
                     const td = document.createElement('td');
-                    td.textContent = row[header];
+                    td.textContent = row[header] || '';
                     tr.appendChild(td);
                 });
                 tbody.appendChild(tr);
@@ -297,4 +699,5 @@
         }
     </script>
 </body>
+
 </html>
